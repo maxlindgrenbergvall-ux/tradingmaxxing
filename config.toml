@@ -120,5 +120,5 @@ poll_seconds = 10
 
 [update]
 # Programmet hämtar nya versioner härifrån (knappen "Ny version" i appen).
-repo = "maxlindgrenbergvall-ux/momentum-bot"
+repo = "maxlindgrenbergvall-ux/tradingmaxxing"
 branch = "main"
