@@ -28,6 +28,18 @@ python -m bot run
 ```
 Standard är krypto (BTC, ETH, SOL, DOGE, AVAX, LINK) som handlas dygnet runt – bra för att få många trades under demoveckan. Byt till `asset_class = "stocks"` i `config.toml` för TSLA, NVDA, COIN, SOXL m.fl. (bara under US-börsens öppettider).
 
+## Låt den ticka dygnet runt
+Alternativ A – på din egen dator (Mac/Linux), lämna terminalen öppen:
+```bash
+./start.sh
+```
+Alternativ B – Docker (t.ex. på en billig VPS eller gratis Oracle Cloud-VM):
+```bash
+docker compose up -d --build
+docker compose logs -f
+```
+`start.sh` startar om boten vid krasch eller nätverksfel, men **inte** efter nödbromsen.
+
 ## Kommandon
 ```bash
 python -m bot status                                   # nödbromsnivå, drawdown, demovecka

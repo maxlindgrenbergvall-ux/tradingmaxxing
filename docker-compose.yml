@@ -1,0 +1,9 @@
+services:
+  bot:
+    build: .
+    environment:
+      - ALPACA_API_KEY
+      - ALPACA_SECRET_KEY
+    volumes:
+      - ./state:/app/state      # nödbroms-state och journal överlever omstarter
+    restart: "no"               # start.sh sköter omstarter så att nödbromsen respekteras

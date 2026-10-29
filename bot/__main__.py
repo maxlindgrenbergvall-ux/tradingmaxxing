@@ -101,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         return 4
     broker = AlpacaBroker(cfg["strategy"]["asset_class"], mode)
     Engine(cfg, broker, risk).run_forever()
-    return 0
+    return 3 if risk.state.halted else 0
 
 
 if __name__ == "__main__":
