@@ -276,6 +276,10 @@ a { color: var(--accent); }
       <span id="toggle-text">Starta</span>
     </button>
     <button id="crash" class="btn danger" hidden title="Simulera en krasch för att testa nödbromsen">Krasch-test</button>
+    <button id="upd-btn" class="btn primary" hidden title="En ny version finns">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
+      Ny version
+    </button>
     <button id="settings" class="btn icon-btn" title="Inställningar" aria-label="Inställningar">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
     </button>
@@ -399,6 +403,31 @@ a { color: var(--accent); }
   </form>
 </dialog>
 
+<dialog id="dlg-update">
+  <form class="dlg" method="dialog">
+    <h3>Uppdatera Momentum Bot</h3>
+    <p id="upd-text">Söker efter uppdateringar…</p>
+    <div class="field" id="upd-token-wrap" hidden>
+      <label for="upd-token">GitHub-token (behövs bara om repot är privat)</label>
+      <input id="upd-token" type="password" autocomplete="off" placeholder="github_pat_…">
+    </div>
+    <p class="sub" id="upd-meta" style="margin-bottom:12px"></p>
+    <div class="msg-box" id="upd-msg"></div>
+    <div class="dlg-actions">
+      <button class="btn" value="cancel" formnovalidate>Stäng</button>
+      <button class="btn" id="upd-check" type="button">Sök igen</button>
+      <button class="btn primary" id="upd-go" type="button">Uppdatera nu</button>
+    </div>
+  </form>
+</dialog>
+
+<div id="restart-overlay" hidden style="position:fixed;inset:0;z-index:100;display:grid;place-items:center;background:color-mix(in srgb, var(--page) 88%, transparent);backdrop-filter:blur(4px)">
+  <div class="card" style="text-align:center;max-width:360px">
+    <div style="font-size:16px;font-weight:650;margin-bottom:6px">Uppdaterar…</div>
+    <div class="sub">Programmet startar om. Sidan laddas om automatiskt.</div>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <script src="/vendor/lightweight-charts.standalone.production.js"></script>
@@ -501,6 +530,49 @@ document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
   ["open", "closed", "log"].forEach((t) => $("tab-" + t).hidden = t !== tab);
 });
 
+/* ---------- uppdateringar ---------- */
+const shortSha = (sha) => sha ? sha.slice(0, 7) : "okänd";
+function renderUpdate(u) {
+  $("upd-btn").hidden = !(u && u.enabled && u.available);
+  if (!$("dlg-update").open || !u) return;
+  const inst = u.installed || {};
+  if (!u.enabled) { $("upd-text").textContent = "Ingen uppdateringskälla är inställd i config.toml."; $("upd-go").disabled = true; return; }
+  $("upd-token-wrap").hidden = !(u.error && u.error.includes("token"));
+  if (u.error) $("upd-text").textContent = u.error;
+  else if (!u.latest) $("upd-text").textContent = "Söker efter uppdateringar…";
+  else if (u.available) $("upd-text").innerHTML = `En ny version finns:<br><b>${esc(u.latest.message)}</b>`;
+  else $("upd-text").textContent = "Du har den senaste versionen.";
+  $("upd-go").disabled = !u.available;
+  $("upd-meta").textContent = `Installerad: ${inst.sha ? shortSha(inst.sha) + (inst.installed_at ? " · " + timeFmt(inst.installed_at) : "") : "ursprunglig nedladdning"}` +
+    (u.latest ? ` · Senaste: ${shortSha(u.latest.sha)} (${timeFmt(u.latest.date)})` : "") + ` · Källa: ${u.repo}`;
+}
+$("upd-btn").onclick = () => { $("upd-msg").textContent = ""; $("dlg-update").showModal(); renderUpdate(S && S.update); };
+$("upd-check").onclick = async () => {
+  const m = $("upd-msg"); m.className = "msg-box"; m.textContent = "Söker…";
+  try {
+    const tok = $("upd-token").value.trim();
+    const u = tok ? await api("/api/update/token", { token: tok }) : await api("/api/update/check", {});
+    if (S) S.update = u; m.textContent = ""; renderUpdate(u);
+  } catch (e) { m.className = "msg-box err"; m.textContent = e.message; }
+};
+$("upd-go").onclick = async () => {
+  const m = $("upd-msg"); m.className = "msg-box"; m.textContent = "Laddar ner…";
+  $("upd-go").disabled = true;
+  try {
+    await api("/api/update/apply", {});
+    $("dlg-update").close();
+    $("restart-overlay").hidden = false;
+    waitForRestart();
+  } catch (e) { m.className = "msg-box err"; m.textContent = e.message; $("upd-go").disabled = false; }
+};
+async function waitForRestart() {
+  await new Promise((r) => setTimeout(r, 2500));
+  for (;;) {
+    try { const r = await fetch("/api/status", { cache: "no-store" }); if (r.ok) { location.reload(); return; } } catch {}
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+}
+
 /* ---------- render ---------- */
 function render(s) {
   // header
@@ -601,6 +673,7 @@ function render(s) {
   pnlChart(s);
   tables(s);
   syncLive(s);
+  renderUpdate(s.update);
 }
 
 /* ---------- equity chart ---------- */

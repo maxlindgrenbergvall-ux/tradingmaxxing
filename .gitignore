@@ -3,3 +3,4 @@ __pycache__/
 .env
 .venv/
 *.zip
+installed_from.txt

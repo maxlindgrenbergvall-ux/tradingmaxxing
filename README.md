@@ -31,6 +31,9 @@ Byggd på idéerna i [tradermonty/claude-trading-skills](https://github.com/trad
 
 Dashboarden visar kontovärde, avstånd till nödbromsen, demoveckans dagar, resultat idag och totalt, vinstfrekvens, profit factor, snitt per trade, största drawdown, en kurva över kontovärdet, resultat per trade, öppna positioner, tradehistorik och logg. Boten kör så länge programfönstret (eller terminalfönstret) är öppet, och datorn hindras från att somna.
 
+## Uppdateringar
+Programmet söker efter nya versioner på GitHub (`[update]` i `config.toml`) när det startar och sedan var 30:e minut. När en ny version finns syns knappen **Ny version** i menyraden. Stoppa boten, klicka och välj **Uppdatera nu**. Programmet laddar ner den nya koden, startar om och laddar om sidan. Mappen `state/` (nycklar, historik, nödbromsstatus) och `.venv/` rörs aldrig.
+
 ## Kom igång (kommandorad)
 1. Skapa ett gratis konto på <https://alpaca.markets>, gå till **Paper Trading** och generera API-nycklar.
 2. Installera och starta:

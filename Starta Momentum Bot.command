@@ -11,7 +11,11 @@ if [ ! -x .venv/bin/python ]; then
   .venv/bin/python -m pip install -q --upgrade pip
   .venv/bin/python -m pip install -q pywebview || echo "(Inget eget fönster – dashboarden öppnas i webbläsaren.)"
 fi
-# Kontrollera beroenden vid varje start (snabbt om allt redan finns)
-.venv/bin/python -m pip install -q --disable-pip-version-check -r requirements.txt
-# caffeinate hindrar Macen från att somna medan boten kör
-caffeinate -i .venv/bin/python -m bot.app
+while true; do
+  # Kontrollera beroenden vid varje start (snabbt om allt redan finns)
+  .venv/bin/python -m pip install -q --disable-pip-version-check -r requirements.txt
+  # caffeinate hindrar Macen från att somna medan boten kör
+  caffeinate -i .venv/bin/python -m bot.app
+  # Kod 10 = programmet har uppdaterat sig och vill startas om
+  [ $? -eq 10 ] || break
+done

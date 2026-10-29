@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 import threading
 import webbrowser
 from collections import deque
@@ -18,6 +19,7 @@ from .broker import AlpacaBroker, SimBroker, norm
 from .config import DEFAULT_PATH, apply_profile, load_config, profiles, symbols
 from .engine import Engine
 from .risk import RiskManager, utcnow
+from .updater import RESTART_CODE, Updater
 
 ROOT = DEFAULT_PATH.parent
 WEB = ROOT / "web"
@@ -63,6 +65,8 @@ class Controller:
         self.stop_event = threading.Event()
         self.engine: Engine | None = None
         self.mode = "paper"
+        self.updater = Updater(ROOT, self.base_cfg, self.state_root)
+        self.restart_event = threading.Event()
         self.error: str | None = None
         self.sim_clock: datetime | None = None
         self._data_broker: AlpacaBroker | None = None
@@ -189,6 +193,15 @@ class Controller:
         else:
             eq = AlpacaBroker(self.cfg["strategy"]["asset_class"], "paper").account()["equity"]
         return risk.unlock(eq, reset)
+
+    # ---------- uppdateringar ----------
+    def apply_update(self) -> dict:
+        if self.running:
+            raise RuntimeError("Stoppa boten innan du uppdaterar.")
+        out = self.updater.apply()
+        (self.state_root / ".restarting").write_text("1")
+        threading.Timer(1.0, self.restart_event.set).start()  # hinna svara webbsidan först
+        return out
 
     # ---------- diagramdata för en position ----------
     def bars(self, symbol: str) -> dict:
@@ -357,7 +370,7 @@ def make_handler(ctrl: Controller):
 
         def do_GET(self):
             if self.path == "/api/status":
-                return self._json(200, ctrl.status())
+                return self._json(200, {**ctrl.status(), "update": ctrl.updater.info()})
             if self.path.startswith("/api/bars"):
                 from urllib.parse import parse_qs, urlparse
 
@@ -396,6 +409,13 @@ def make_handler(ctrl: Controller):
                 elif self.path == "/api/crash-test":
                     ctrl.crash_test()
                     out = {"ok": True}
+                elif self.path == "/api/update/check":
+                    out = ctrl.updater.check()
+                elif self.path == "/api/update/apply":
+                    out = ctrl.apply_update()
+                elif self.path == "/api/update/token":
+                    ctrl.updater.set_token(body.get("token", ""))
+                    out = ctrl.updater.check()
                 elif self.path == "/api/profile":
                     ctrl.set_profile(body.get("profile", "normal"))
                     out = {"ok": True}
@@ -434,20 +454,36 @@ def main() -> None:
     print(f"Dashboard: {url}")
     print("Låt det här fönstret vara öppet – boten kör så länge programmet är igång.")
 
+    def check_updates():
+        while not ctrl.restart_event.wait(5 if ctrl.updater.checked_at is None else 1800):
+            ctrl.updater.check()
+    threading.Thread(target=check_updates, daemon=True).start()
+
+    # Efter en uppdatering laddar den öppna sidan om sig själv – öppna inte en ny flik.
+    marker = ctrl.state_root / ".restarting"
+    restarted = marker.exists()
+    marker.unlink(missing_ok=True)
+
     try:
         import webview  # pywebview: eget programfönster om det finns installerat
 
-        webview.create_window("Momentum Bot", url, width=1400, height=900, min_size=(380, 600))
+        window = webview.create_window("Momentum Bot", url, width=1400, height=900, min_size=(380, 600))
+        threading.Thread(target=lambda: (ctrl.restart_event.wait(), window.destroy()), daemon=True).start()
         webview.start()
     except Exception:
-        webbrowser.open(url)
+        if not restarted:
+            webbrowser.open(url)
         try:
-            threading.Event().wait()
+            ctrl.restart_event.wait()
         except KeyboardInterrupt:
             pass
     finally:
         ctrl.stop()
         server.shutdown()
+        server.server_close()
+    if ctrl.restart_event.is_set():
+        print("Uppdaterad – startar om...")
+        sys.exit(RESTART_CODE)
 
 
 def keep_awake() -> None:

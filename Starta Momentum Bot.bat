@@ -14,7 +14,10 @@ if not exist ".venv\Scripts\python.exe" (
   ".venv\Scripts\python.exe" -m pip install -q --upgrade pip
   ".venv\Scripts\python.exe" -m pip install -q pywebview || echo Inget eget fonster - dashboarden oppnas i webblasaren.
 )
+:start
 rem Kontrollera beroenden vid varje start (snabbt om allt redan finns)
 ".venv\Scripts\python.exe" -m pip install -q --disable-pip-version-check -r requirements.txt
 ".venv\Scripts\python.exe" -m bot.app
+rem Kod 10 = programmet har uppdaterat sig och vill startas om
+if errorlevel 10 if not errorlevel 11 goto start
 pause
