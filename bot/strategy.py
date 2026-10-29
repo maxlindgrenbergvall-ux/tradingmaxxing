@@ -8,6 +8,7 @@ jaga redan utsträckta rörelser), men på minutbarer i stället för dagsbarer.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 from statistics import mean
 from typing import Any
 
@@ -43,18 +44,35 @@ def atr(bars: list[Bar], period: int) -> float:
     return mean(trs) if trs else 0.0
 
 
-def evaluate(symbol: str, bars: list[Bar], s: dict[str, Any]) -> Signal | None:
+CHECK_LABELS = {
+    "burst": "Rörelse uppåt",
+    "not_overextended": "Inte för sent",
+    "volume": "Volym",
+    "range_expansion": "Range",
+    "close_near_high": "Stängning nära topp",
+    "volatile_enough": "Volatilitet",
+    "green_bar": "Grön stapel",
+    "fresh": "Färsk data",
+}
+
+
+def diagnose(symbol: str, bars: list[Bar], s: dict[str, Any], now: datetime | None = None) -> dict[str, Any]:
+    """Räknar ut alla villkor för en symbol – används både för köpbeslut och signalradarn."""
     burst = int(s.get("burst_bars", 5))
     period = int(s.get("atr_period", 14))
-    if len(bars) < max(period + 1, burst + BASE_BARS + 1):
-        return None
+    need = max(period + 1, burst + BASE_BARS + 1)
+    out: dict[str, Any] = {"symbol": symbol, "bars": len(bars), "signal": None, "checks": {}, "metrics": {}}
+    if len(bars) < need:
+        out["note"] = f"för lite data ({len(bars)}/{need} minutstaplar)"
+        return out
 
     last = bars[-1]
     window = bars[-burst:]
     base = bars[-burst - BASE_BARS : -burst]
     ref_close = bars[-burst - 1].c
     if ref_close <= 0 or last.c <= 0:
-        return None
+        out["note"] = "ogiltigt pris"
+        return out
 
     burst_pct = (last.c / ref_close - 1) * 100
     base_vol = mean(b.v for b in base)
@@ -75,12 +93,27 @@ def evaluate(symbol: str, bars: list[Bar], s: dict[str, Any]) -> Signal | None:
         "volatile_enough": atr_pct >= s.get("min_atr_pct", 0.15),
         "green_bar": last.c > last.o,
     }
+    age_min = None
+    if now is not None:
+        try:
+            age_min = (now - datetime.fromisoformat(last.t.replace("Z", "+00:00"))).total_seconds() / 60
+            # Senaste minutstapeln måste vara ny – annars handlar ingen symbolen just nu.
+            checks["fresh"] = age_min <= s.get("max_bar_age_minutes", 3)
+        except ValueError:
+            pass
+    out.update(
+        checks=checks,
+        metrics={"price": last.c, "bar_time": last.t, "burst_pct": burst_pct, "vol_ratio": vol_ratio,
+                 "range_ratio": range_ratio, "close_loc": close_loc, "atr_pct": atr_pct, "age_min": age_min},
+        passed=sum(checks.values()),
+        total=len(checks),
+    )
     if not all(checks.values()) or a <= 0:
-        return None
+        return out
 
     stop_dist = a * s.get("atr_stop_mult", 1.5)
-    score = burst_pct * min(vol_ratio, 5) * min(range_ratio, 4) * close_loc
-    return Signal(
+    score = max(burst_pct, 0.01) * max(min(vol_ratio, 5), 0.2) * max(min(range_ratio, 4), 0.2) * max(close_loc, 0.1)
+    out["signal"] = Signal(
         symbol=symbol,
         entry=last.c,
         stop=last.c - stop_dist,
@@ -95,3 +128,8 @@ def evaluate(symbol: str, bars: list[Bar], s: dict[str, Any]) -> Signal | None:
             f"ATR {atr_pct:.2f}%",
         ),
     )
+    return out
+
+
+def evaluate(symbol: str, bars: list[Bar], s: dict[str, Any]) -> Signal | None:
+    return diagnose(symbol, bars, s)["signal"]

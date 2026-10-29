@@ -13,7 +13,7 @@ from .broker import Broker, norm
 from .config import symbols
 from .risk import RiskManager, utcnow
 from .sizing import position_size
-from .strategy import evaluate
+from .strategy import CHECK_LABELS, diagnose
 
 log = logging.getLogger("bot")
 
@@ -34,6 +34,11 @@ class Engine:
         self.last_account: dict | None = None
         self.last_positions: dict[str, dict] = {}
         self.last_block_reason = "OK"
+        self.last_scan: dict[str, Any] | None = None
+        self.scans = 0
+        self.signals_seen = 0
+        self.orders_sent = 0
+        self._last_summary = 0.0
         self.trades: dict[str, dict] = (
             json.loads(self.trades_path.read_text()) if self.trades_path.exists() else {}
         )
@@ -137,12 +142,22 @@ class Engine:
     def _enter(self, acct: dict, positions: dict[str, dict], now: datetime) -> None:
         free_slots = int(self.z.get("max_open_positions", 3)) - len(positions)
         if free_slots <= 0:
+            self.last_scan = {"at": now.isoformat(), "full": True, "rows": (self.last_scan or {}).get("rows", [])}
             return
         held = set(positions)
         bars = self.broker.bars(self.symbols, self.s.get("timeframe", "1Min"),
                                 int(self.s.get("lookback_bars", 60)))
-        signals = [sig for sym, b in bars.items()
-                   if norm(sym) not in held and (sig := evaluate(sym, b, self.s))]
+        rows, signals = [], []
+        for sym in self.symbols:
+            d = diagnose(sym, bars.get(sym, []), self.s, now)
+            d["held"] = norm(sym) in held
+            if d["signal"] and not d["held"]:
+                signals.append(d["signal"])
+            rows.append({k: v for k, v in d.items() if k != "signal"} | {"ready": bool(d["signal"])})
+        self.scans += 1
+        self.signals_seen += len(signals)
+        self.last_scan = {"at": now.isoformat(), "full": False, "rows": rows}
+        self._log_summary(rows, len(signals))
         signals.sort(key=lambda x: x.score, reverse=True)
         buying_power = acct["buying_power"]
         for sig in signals[:free_slots]:
@@ -153,8 +168,14 @@ class Engine:
                 fractional=self.fractional,
             )
             if qty <= 0 or qty * sig.entry < 10:
+                log.warning("%s: signal men för liten position (%.6f st) – hoppar över.", sig.symbol, qty)
                 continue
-            order_id = self.broker.buy(sig.symbol, qty)
+            try:
+                order_id = self.broker.buy(sig.symbol, qty)
+            except Exception as e:
+                log.error("Köporder för %s nekades: %s", sig.symbol, e)
+                continue
+            self.orders_sent += 1
             buying_power -= qty * sig.entry
             self.trades[sig.symbol] = {
                 "order_id": order_id, "qty": qty, "entry": sig.entry, "stop": sig.stop,
@@ -164,6 +185,21 @@ class Engine:
             log.info("ENTRY %s qty=%s @ ~%.4f stop %.4f target %.4f [%s]",
                      sig.symbol, qty, sig.entry, sig.stop, sig.target, ", ".join(sig.reasons))
         self._save_trades()
+
+    def _log_summary(self, rows: list[dict], n_signals: int) -> None:
+        """En rad per minut i loggen om vad skanningen ser, så det syns att boten jobbar."""
+        if time.monotonic() - self._last_summary < 60 and not n_signals:
+            return
+        self._last_summary = time.monotonic()
+        scored = [r for r in rows if r.get("total") and not r["held"]]
+        if not scored:
+            log.info("Skanning: väntar på data (%s)", ", ".join(f"{r['symbol']}: {r.get('note', '-')}" for r in rows[:3]))
+            return
+        best = max(scored, key=lambda r: r["passed"])
+        missing = [CHECK_LABELS[k] for k, ok in best["checks"].items() if not ok]
+        log.info("Skanning %d: %d symboler, %d signaler. Närmast: %s %d/%d villkor%s",
+                 self.scans, len(rows), n_signals, best["symbol"], best["passed"], best["total"],
+                 f" (saknas: {', '.join(missing)})" if missing else "")
 
     # ------------------------------------------------------------------
     def run_forever(self, stop_event=None, poll: float | None = None, before_step=None,

@@ -27,6 +27,10 @@ Byggd på idéerna i [tradermonty/claude-trading-skills](https://github.com/trad
 
 **Tempo:** välj *Normal* eller *Hög frekvens* uppe i menyraden (när boten är stoppad). Hög frekvens är förvalt: lösare instegskrav, max 8 min per trade, upp till 6 positioner, 11 krypton, kontroll var 10:e sekund och 0,4 % risk per trade. Nödbromsen vid −25 % och dagsgränsen 8 % gäller i båda lägena. Inställningarna finns under `[profiles.hogfrekvens]` i `config.toml`.
 
+**Max frekvens:** ett testläge som köper på mycket svaga signaler (upp till 8 positioner, max 5 min per trade, 0,25 % risk). Det är till för att se hur boten beter sig med många trades, inte för att tjäna pengar.
+
+**Signalradar:** visar varje symbol vid senaste skanningen: rörelse, volym, range, stängning, volatilitet och datans ålder jämfört med kraven, hur många villkor som är uppfyllda och exakt vad som saknas för ett köp. Loggen skriver en sammanfattning varje minut.
+
 **Live-positioner:** varje öppen position får ett eget kort med resultat, R-multipel, ett spår från stopp till mål, tid kvar till tidsstoppet och ett live-diagram. Växla mellan **TradingView** (TradingViews officiella livediagram) och **Botens vy** (ljusstakar med inköp, stopp och mål inritade, byggt med TradingViews öppna bibliotek Lightweight Charts). Klicka på en rad under Öppna positioner för att hoppa till dess diagram. Utan öppna positioner kan du bevaka valfri symbol från bevakningslistan.
 
 Dashboarden visar kontovärde, avstånd till nödbromsen, demoveckans dagar, resultat idag och totalt, vinstfrekvens, profit factor, snitt per trade, största drawdown, en kurva över kontovärdet, resultat per trade, öppna positioner, tradehistorik och logg. Boten kör så länge programfönstret (eller terminalfönstret) är öppet, och datorn hindras från att somna.

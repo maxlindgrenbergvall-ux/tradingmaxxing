@@ -194,6 +194,25 @@ class Controller:
             eq = AlpacaBroker(self.cfg["strategy"]["asset_class"], "paper").account()["equity"]
         return risk.unlock(eq, reset)
 
+    def _scan_info(self) -> dict | None:
+        eng = self.engine
+        if not eng:
+            return None
+        st = self.cfg["strategy"]
+        return {
+            "last": eng.last_scan,
+            "scans": eng.scans,
+            "signals": eng.signals_seen,
+            "orders": eng.orders_sent,
+            "poll_seconds": eng.cfg["runtime"].get("poll_seconds", 30),
+            "thresholds": {
+                "burst_pct": st.get("min_burst_pct", 0.6), "max_burst_pct": st.get("max_burst_pct", 3.0),
+                "vol_ratio": st.get("volume_mult", 1.8), "range_ratio": st.get("range_expansion_mult", 1.3),
+                "close_loc": st.get("min_close_location", 0.65), "atr_pct": st.get("min_atr_pct", 0.15),
+                "burst_bars": st.get("burst_bars", 5),
+            },
+        }
+
     # ---------- uppdateringar ----------
     def apply_update(self) -> dict:
         if self.running:
@@ -341,6 +360,7 @@ class Controller:
             "trades_last_hour": len(last_hour),
             "avg_hold_min": sum(holds) / len(holds) if holds else None,
             "profile": self.profile,
+            "scan": self._scan_info(),
             "profiles": profiles(self.base_cfg),
             "equity_series": [{"t": p["t"], "v": p["equity"]} for p in series],
             "logs": list(MEMLOG.lines)[-120:][::-1],

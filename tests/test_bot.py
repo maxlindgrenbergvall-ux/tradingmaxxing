@@ -99,3 +99,20 @@ def test_daily_loss_blocks_new_trades(cfg, tmp_path):
     risk.update(91_000)
     ok, why = risk.can_open(91_000)
     assert not ok and "Daglig" in why
+
+
+def test_stale_bars_block_entry(cfg):
+    from datetime import datetime, timezone
+    from bot.strategy import diagnose
+    t0 = datetime(2026, 1, 1, 12, 0, tzinfo=timezone.utc)
+    bars = []
+    p = 100.0
+    for i in range(40):
+        bars.append(Bar((t0 + timedelta(minutes=i)).isoformat(), p, p * 1.001, p * 0.999, p, 1000))
+    for i in range(5):
+        o, p = p, p * 1.003
+        bars.append(Bar((t0 + timedelta(minutes=40 + i)).isoformat(), o, p * 1.0005, o * 0.9995, p, 3000))
+    fresh = diagnose("X", bars, cfg["strategy"], t0 + timedelta(minutes=45))
+    stale = diagnose("X", bars, cfg["strategy"], t0 + timedelta(minutes=90))
+    assert fresh["signal"] is not None
+    assert stale["signal"] is None and stale["checks"]["fresh"] is False

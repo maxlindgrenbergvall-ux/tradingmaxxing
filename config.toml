@@ -86,6 +86,38 @@ cooldown_minutes = 15
 [profiles.hogfrekvens.runtime]
 poll_seconds = 10
 
+# Testläge för att se många trades: köper på mycket svaga signaler.
+# Förvänta dig inte att det tjänar pengar – det är till för att se hur boten beter sig.
+[profiles.maxfrekvens]
+label = "Max frekvens"
+
+[profiles.maxfrekvens.strategy]
+crypto_symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "DOGE/USD", "AVAX/USD", "LINK/USD",
+                  "LTC/USD", "BCH/USD", "UNI/USD", "AAVE/USD", "DOT/USD"]
+burst_bars = 2
+min_burst_pct = 0.02
+max_burst_pct = 8.0
+volume_mult = 0.0
+range_expansion_mult = 0.0
+min_close_location = 0.3
+min_atr_pct = 0.0
+atr_stop_mult = 1.0
+reward_risk = 1.2
+trail_after_r = 0.6
+max_hold_minutes = 5
+
+[profiles.maxfrekvens.sizing]
+risk_per_trade_pct = 0.25
+max_position_pct = 10.0
+max_open_positions = 8
+
+[profiles.maxfrekvens.safety]
+losing_streak_n = 25
+cooldown_minutes = 5
+
+[profiles.maxfrekvens.runtime]
+poll_seconds = 10
+
 [update]
 # Programmet hämtar nya versioner härifrån (knappen "Ny version" i appen).
 repo = "maxlindgrenbergvall-ux/momentum-bot"
