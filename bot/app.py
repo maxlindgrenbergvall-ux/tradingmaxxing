@@ -56,8 +56,10 @@ class Controller:
         self.settings_path = self.state_root / "settings.json"
         settings = json.loads(self.settings_path.read_text()) if self.settings_path.exists() else {}
         self.profile = "normal"
+        self.leverage = 1.0
         try:
             self.set_profile(settings.get("profile", "hogfrekvens"), save=False)
+            self.set_leverage(settings.get("leverage", 1), save=False)
         except ValueError:
             pass
         self._load_credentials()
@@ -98,7 +100,22 @@ class Controller:
         self.profile = name
         self._bar_cache = {}
         if save:
-            self.settings_path.write_text(json.dumps({"profile": name}))
+            self._save_settings()
+
+    LEVERAGES = (1, 2, 5, 10, 20)
+
+    def set_leverage(self, lev: float, save: bool = True) -> None:
+        if self.running:
+            raise RuntimeError("Stoppa boten innan du byter hävstång.")
+        lev = float(lev)
+        if lev not in self.LEVERAGES:
+            raise ValueError("Ogiltig hävstång.")
+        self.leverage = lev
+        if save:
+            self._save_settings()
+
+    def _save_settings(self) -> None:
+        self.settings_path.write_text(json.dumps({"profile": self.profile, "leverage": self.leverage}))
 
     def has_keys(self) -> bool:
         return bool(os.environ.get("ALPACA_API_KEY") and os.environ.get("ALPACA_SECRET_KEY"))
@@ -130,7 +147,8 @@ class Controller:
             cfg = json.loads(json.dumps(self.cfg))
             if mode == "sim":
                 cfg["runtime"]["poll_seconds"] = 1
-                broker = SimBroker(symbols(cfg), seed=None, drift=-0.0002)
+                cfg["sizing"]["leverage"] = self.leverage
+                broker = SimBroker(symbols(cfg), seed=None, drift=-0.0002, leverage=self.leverage)
                 self.sim_clock = broker.now
             else:
                 if not self.has_keys():
@@ -360,6 +378,10 @@ class Controller:
             "trades_last_hour": len(last_hour),
             "avg_hold_min": sum(holds) / len(holds) if holds else None,
             "profile": self.profile,
+            "leverage": self.leverage,
+            "leverages": list(self.LEVERAGES),
+            "exposure": (acct or {}).get("exposure"),
+            "liquidations": getattr(self.engine.broker, "liquidations", 0) if self.engine else 0,
             "scan": self._scan_info(),
             "profiles": profiles(self.base_cfg),
             "equity_series": [{"t": p["t"], "v": p["equity"]} for p in series],
@@ -436,6 +458,9 @@ def make_handler(ctrl: Controller):
                 elif self.path == "/api/update/token":
                     ctrl.updater.set_token(body.get("token", ""))
                     out = ctrl.updater.check()
+                elif self.path == "/api/leverage":
+                    ctrl.set_leverage(body.get("leverage", 1))
+                    out = {"ok": True}
                 elif self.path == "/api/profile":
                     ctrl.set_profile(body.get("profile", "normal"))
                     out = {"ok": True}

@@ -214,12 +214,19 @@ class Engine:
             if why:
                 log.info("%s: hoppar över köp – %s", sig.symbol, why)
                 continue
-            qty = position_size(
-                equity=acct["equity"], buying_power=buying_power, entry=entry, stop=stop,
-                risk_pct=self.z.get("risk_per_trade_pct", 1.0),
-                max_position_pct=self.z.get("max_position_pct", 20.0),
-                fractional=self.fractional,
-            )
+            lev = float(self.z.get("leverage", 1.0))
+            if lev > 1:
+                # Hävstång som på en kryptobörs: marginal = max_position_pct av kontot, position = marginal x hävstång.
+                notional = min(acct["equity"] * self.z.get("max_position_pct", 20.0) / 100 * lev, buying_power * 0.98)
+                qty = notional / entry if notional > 0 else 0.0
+                qty = (int(qty * 1e6) / 1e6) if self.fractional else float(int(qty))
+            else:
+                qty = position_size(
+                    equity=acct["equity"], buying_power=buying_power, entry=entry, stop=stop,
+                    risk_pct=self.z.get("risk_per_trade_pct", 1.0),
+                    max_position_pct=self.z.get("max_position_pct", 20.0),
+                    fractional=self.fractional,
+                )
             if qty <= 0 or qty * entry < 10:
                 log.warning("%s: signal men för liten position (%.6f st) – hoppar över.", sig.symbol, qty)
                 continue

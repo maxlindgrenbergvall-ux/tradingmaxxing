@@ -172,3 +172,17 @@ def test_no_instant_stop_out_churn(cfg, tmp_path):
     j = [json.loads(line) for line in open(eng.journal_path)]
     instant = [t for t in j if t["exit_reason"] == "stop" and t["closed_at"] == t["opened_at"]]
     assert len(j) > 20 and not instant
+
+
+def test_leverage_buying_power_and_liquidation(cfg):
+    b = SimBroker(symbols(cfg), seed=1, leverage=10, spread=0.0, fee_pct=0.0)
+    acct = b.account()
+    assert acct["buying_power"] == pytest.approx(1_000_000)   # 10 x kontot
+    sym = symbols(cfg)[0]
+    b.buy(sym, 900_000 / b.price(sym))
+    assert b.account()["exposure"] == pytest.approx(900_000, rel=1e-6)
+    b.shock(-3)                       # -3 % på 9x exponering = -27 % av kontot, ingen likvidation än
+    assert b.liquidations == 0 and b.account()["equity"] == pytest.approx(73_000, rel=0.01)
+    b.shock(-6)                       # ytterligare ras -> under underhållsmarginalen
+    acct = b.account()
+    assert b.liquidations == 1 and acct["exposure"] == 0 and b.positions() == {}

@@ -29,6 +29,8 @@ Byggd på idéerna i [tradermonty/claude-trading-skills](https://github.com/trad
 
 **Max frekvens:** ett testläge som köper på mycket svaga signaler (upp till 8 positioner, max 5 min per trade, 0,25 % risk). Det är till för att se hur boten beter sig med många trades, inte för att tjäna pengar.
 
+**Hävstång (bara simulering):** välj 1×, 2×, 5×, 10× eller 20× i menyraden när du kör Simulering. Varje position blir då marginal × hävstång, och om kontovärdet inte längre räcker som marginal likvideras alla positioner som på en riktig börs. Alpaca har ingen hävstång på krypto, så demokontot kör alltid 1×. Obs: hävstång gör inte målen lättare att nå. Prisrörelsen som krävs är densamma, men vinst, förlust, spread och avgifter blir lika många gånger större.
+
 **Signalradar:** visar varje symbol vid senaste skanningen: rörelse, volym, range, stängning, volatilitet och datans ålder jämfört med kraven, hur många villkor som är uppfyllda och exakt vad som saknas för ett köp. Loggen skriver en sammanfattning varje minut.
 
 **Live-positioner:** varje öppen position får ett eget kort med resultat, R-multipel, ett spår från stopp till mål, tid kvar till tidsstoppet och ett live-diagram. Växla mellan **TradingView** (TradingViews officiella livediagram) och **Botens vy** (ljusstakar med inköp, stopp och mål inritade, byggt med TradingViews öppna bibliotek Lightweight Charts). Klicka på en rad under Öppna positioner för att hoppa till dess diagram. Utan öppna positioner kan du bevaka valfri symbol från bevakningslistan.

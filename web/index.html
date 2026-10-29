@@ -65,11 +65,12 @@ button, input, select { font: inherit; color: inherit; }
 /* ---------- header ---------- */
 header { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--page) 86%, transparent);
   backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); }
-.bar { max-width: 1320px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 16px; letter-spacing: -0.01em; margin-right: auto; }
+.bar { max-width: 1320px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 16px; letter-spacing: -0.01em; margin-right: auto; white-space: nowrap; }
+@media (max-width: 1440px) { .brand .brand-name { display: none; } }
 .brand svg { width: 28px; height: 28px; }
 .seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
-.seg button { border: 0; background: transparent; padding: 6px 12px; border-radius: 7px; cursor: pointer; color: var(--ink-2); font-weight: 550; }
+.seg button { border: 0; background: transparent; padding: 6px 9px; font-size: 13px; border-radius: 7px; cursor: pointer; color: var(--ink-2); font-weight: 550; }
 .seg button[aria-pressed="true"] { background: var(--accent-wash); color: var(--accent); }
 .seg button:disabled { cursor: not-allowed; }
 .seg button:disabled:not([aria-pressed="true"]) { opacity: .5; }
@@ -80,7 +81,7 @@ header { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, v
 .pill.halt { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 40%, transparent); background: var(--critical-wash); }
 .pill.halt .dot { background: var(--critical); }
 @keyframes pulse { 70% { box-shadow: 0 0 0 7px rgba(12,163,12,0); } 100% { box-shadow: 0 0 0 0 rgba(12,163,12,0); } }
-.btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--surface); padding: 8px 14px;
+.btn { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border); background: var(--surface); padding: 8px 12px; white-space: nowrap;
   border-radius: 10px; cursor: pointer; font-weight: 600; transition: background .15s, transform .05s; }
 .btn:hover { background: var(--surface-2); }
 .btn:active { transform: translateY(1px); }
@@ -273,13 +274,14 @@ a { color: var(--accent); }
   <div class="bar">
     <div class="brand">
       <svg viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="8" fill="var(--accent)"/><path d="M6 18l5-5 4 3 7-8" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="8" r="2" fill="#fff"/></svg>
-      Momentum Bot
+      <span class="brand-name">Momentum Bot</span>
     </div>
     <div class="seg" role="group" aria-label="Läge">
       <button id="m-paper" aria-pressed="true">Demokonto</button>
       <button id="m-sim" aria-pressed="false">Simulering</button>
     </div>
     <div class="seg" role="group" aria-label="Tempo" id="tempo" title="Tempo: hur ofta boten handlar"></div>
+    <div class="seg" role="group" aria-label="Hävstång" id="lev" title="Hävstång (bara i simulering)"></div>
     <span id="status-pill" class="pill"><span class="dot"></span><span id="status-text">Stoppad</span></span>
     <button id="toggle" class="btn primary">
       <svg id="toggle-ic" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
@@ -308,6 +310,7 @@ a { color: var(--accent); }
       <div class="hero-value" id="equity">–</div>
       <div><span id="total-delta" class="delta flat">–</span> <span class="sub">sedan start</span></div>
       <div class="sub" style="margin-top:6px" id="start-sub">Startkapital –</div>
+      <div class="sub" style="margin-top:2px" id="exp-sub"></div>
     </div>
     <div class="card">
       <div class="card-head"><h2>Avstånd till nödbroms</h2><span class="sub" id="kill-lim">gräns −25 %</span></div>
@@ -600,6 +603,16 @@ function render(s) {
   $("m-paper").setAttribute("aria-pressed", s.mode === "paper");
   $("m-sim").setAttribute("aria-pressed", s.mode === "sim");
   $("m-paper").disabled = $("m-sim").disabled = s.running;
+  const levKey = JSON.stringify([s.leverages, s.leverage, s.running, s.mode]);
+  if ($("lev").dataset.k !== levKey) {
+    $("lev").dataset.k = levKey;
+    $("lev").hidden = s.mode !== "sim";
+    $("lev").innerHTML = s.leverages.map((l) =>
+      `<button data-l="${l}" aria-pressed="${l === s.leverage}" ${s.running ? "disabled" : ""}>${l}×</button>`).join("");
+    $("lev").querySelectorAll("button").forEach((b) => b.onclick = async () => {
+      try { await api("/api/leverage", { leverage: +b.dataset.l }); toast("Hävstång " + b.textContent + " – gäller nästa simulering"); refresh(); } catch (e) { toast(e.message); }
+    });
+  }
   const tempoKey = JSON.stringify([s.profiles, s.profile, s.running]);
   if ($("tempo").dataset.k !== tempoKey) {
     $("tempo").dataset.k = tempoKey;
@@ -624,6 +637,8 @@ function render(s) {
   if (s.halted) b.push(`<div class="banner critical">${ICON.alert}<div class="grow"><b>Nödbromsen har löst ut – boten väntar på manuell granskning</b><p>${esc(s.halt_reason)}</p></div><button class="btn" id="open-unlock">Granska &amp; lås upp</button></div>`);
   if (s.error) b.push(`<div class="banner critical">${ICON.alert}<div class="grow"><b>Boten stannade på grund av ett fel</b><p>${esc(s.error)}</p></div></div>`);
   if (s.mode === "paper" && !s.has_keys) b.push(`<div class="banner info">${ICON.info}<div class="grow"><b>Koppla ditt Alpaca-demokonto</b><p>Skapa ett gratis konto, ta fram Paper Trading-nycklar och klistra in dem. Vill du bara prova först? Välj <b>Simulering</b> uppe till höger.</p></div><button class="btn primary" id="open-keys">Lägg in nycklar</button></div>`);
+  if (s.liquidations) b.push(`<div class="banner critical">${ICON.alert}<div class="grow"><b>Likvidation: ${s.liquidations} gång${s.liquidations > 1 ? "er" : ""}</b><p>Kontovärdet räckte inte som marginal med ${s.leverage}× hävstång, så alla positioner tvångsstängdes – precis som på en riktig börs.</p></div></div>`);
+  if (s.mode === "sim" && s.leverage > 1) b.push(`<div class="banner warning">${ICON.alert}<div class="grow"><b>${s.leverage}× hävstång</b><p>Varje position är ${s.leverage} gånger din marginal. Vinster, förluster, spread och avgifter blir ${s.leverage} gånger större räknat på kontot. En rörelse på ${nf1.format(50 / s.leverage)} % mot dig ger likvidation.</p></div></div>`);
   if (s.mode === "sim") b.push(`<div class="banner warning">${ICON.info}<div class="grow"><b>Simuleringsläge – påhittade priser, inga riktiga ordrar</b><p>1 sekund motsvarar 1 marknadsminut. Använd <b>Krasch-test</b> för att se nödbromsen lösa ut.</p></div></div>`);
   $("banners").innerHTML = b.join("");
   if ($("open-unlock")) $("open-unlock").onclick = () => { $("u").value = ""; $("u-reset").checked = false; $("unlock-msg").textContent = ""; $("dlg-unlock").showModal(); };
@@ -637,6 +652,9 @@ function render(s) {
   td.className = "delta " + (s.total_pnl > 0 ? "up" : s.total_pnl < 0 ? "down" : "flat");
   td.textContent = s.start_equity ? `${s.total_pnl > 0 ? "▲" : s.total_pnl < 0 ? "▼" : ""} ${signed(s.total_pnl)} (${totPct > 0 ? "+" : ""}${nf2.format(totPct)} %)` : "–";
   $("start-sub").textContent = "Startkapital " + money(s.start_equity);
+  const lev = s.mode === "sim" ? s.leverage : 1;
+  $("exp-sub").textContent = s.exposure != null && s.equity
+    ? `Exponering ${money(s.exposure)} (${nf1.format(s.exposure / s.equity)}× kontot) · ${lev}× hävstång` : "";
 
   // kill switch
   const used = Math.max(0, s.drawdown_pct) / s.kill_pct * 100;

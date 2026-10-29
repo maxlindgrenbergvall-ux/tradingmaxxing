@@ -157,7 +157,7 @@ class SimBroker:
     Används för `python -m bot sim` och tester - inga riktiga pengar eller API."""
 
     def __init__(self, symbols: list[str], cash: float = 100_000, seed: int | None = 1, drift: float = 0.0,
-                 spread: float | None = None, fee_pct: float = 0.25):
+                 spread: float | None = None, fee_pct: float = 0.25, leverage: float = 1.0):
         self.rng = random.Random(seed)
         self.cash = cash
         self.drift = drift
@@ -165,6 +165,11 @@ class SimBroker:
         self.series: dict[str, list[Bar]] = {}
         # Spread i procent per symbol – som hos en riktig mäklare köper man till ask och säljer till bid.
         self.fee = fee_pct / 100
+        # Hävstång: köpkraft = kontovärde x hävstång. Lånade pengar syns som negativ kassa.
+        # Likvidation när kontovärdet understiger underhållsmarginalen (hälften av startmarginalen).
+        self.leverage = max(1.0, float(leverage))
+        self.maintenance = 0.5 / self.leverage
+        self.liquidations = 0
         self.spread_pct = {s: (spread if spread is not None else self.rng.uniform(0.05, 0.4)) for s in symbols}
         self.minute = 0
         self.burst_left: dict[str, int] = {}
@@ -234,9 +239,22 @@ class SimBroker:
             c = b.c * (1 + pct / 100)
             bars[-1] = Bar(b.t, b.o, max(b.h, c), min(b.l, c), c, b.v * 5)
 
+    def exposure(self) -> float:
+        return sum(p["qty"] * self.price(s) for s, p in self.pos.items())
+
     def account(self) -> dict:
-        equity = self.cash + sum(p["qty"] * self.price(s) for s, p in self.pos.items())
-        return {"equity": equity, "buying_power": self.cash}
+        exposure = self.exposure()
+        equity = self.cash + exposure
+        if exposure > 0 and self.leverage > 1 and equity <= exposure * self.maintenance:
+            self.liquidations += 1
+            import logging
+            logging.getLogger("bot").critical(
+                "LIKVIDATION: kontovärdet %.2f räcker inte som marginal för positioner på %.2f (%.0fx) – allt stängs.",
+                equity, exposure, self.leverage)
+            self.flatten()
+            exposure, equity = 0.0, self.cash
+        buying_power = max(0.0, equity * self.leverage - exposure)
+        return {"equity": equity, "buying_power": buying_power, "exposure": exposure, "leverage": self.leverage}
 
     def positions(self) -> dict[str, dict]:
         return {
