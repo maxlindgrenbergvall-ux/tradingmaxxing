@@ -1,0 +1,54 @@
+# Konfiguration för momentum-burst-boten.
+# Hemligheter (API-nycklar) läggs ALDRIG här - använd miljövariabler, se README.
+
+[account]
+# "paper" = Alpacas demokonto. "live" spärras de första 7 dagarna (se [safety]).
+mode = "paper"
+
+[safety]
+# Hård nödbroms: förlorat 25 % av startkapitalet => stäng allt och stanna
+# tills någon kör `python -m bot unlock` efter manuell granskning.
+kill_switch_drawdown_pct = 25.0
+# Stäng alla positioner när nödbromsen löser ut (rekommenderas).
+flatten_on_kill = true
+# Daglig förlustgräns: inga nya trades resten av dagen (inspirerat av drawdown-circuit-breaker).
+max_daily_loss_pct = 8.0
+# Antal förlorande trades i rad innan paus.
+losing_streak_n = 4
+cooldown_minutes = 60
+# Live-handel tillåts tidigast så här många dagar efter första demokörningen.
+paper_only_days = 7
+
+[strategy]
+# Snabba trades på volatila, likvida instrument.
+asset_class = "crypto"            # "crypto" (24/7) eller "stocks" (US-börsens öppettider)
+crypto_symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "DOGE/USD", "AVAX/USD", "LINK/USD"]
+stock_symbols = ["TSLA", "NVDA", "AMD", "COIN", "MARA", "PLTR", "SMCI", "MSTR", "TQQQ", "SOXL"]
+timeframe = "1Min"
+lookback_bars = 60
+
+# Momentum burst (intradag-version av Stockbee-logiken i repot):
+burst_bars = 5                    # fönster för rörelsen
+min_burst_pct = 0.6               # minst +0,6 % över burst_bars
+volume_mult = 1.8                 # volym i fönstret vs snittet
+range_expansion_mult = 1.3        # senaste barens range vs snitt-range
+min_close_location = 0.65         # stängning i övre 35 % av barens range
+min_atr_pct = 0.15                # kräv viss volatilitet (ATR i % av pris)
+atr_period = 14
+
+# Exit
+atr_stop_mult = 1.5
+reward_risk = 2.0
+trail_after_r = 1.0               # flytta stopp till break-even efter +1R
+max_hold_minutes = 30
+
+[sizing]
+# ATR-baserad storlek (samma formel som position-sizer-skillen).
+risk_per_trade_pct = 1.0
+max_position_pct = 20.0
+max_open_positions = 3
+
+[runtime]
+poll_seconds = 30
+state_dir = "state"
+log_file = "state/bot.log"
