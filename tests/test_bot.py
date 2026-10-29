@@ -116,3 +116,26 @@ def test_stale_bars_block_entry(cfg):
     stale = diagnose("X", bars, cfg["strategy"], t0 + timedelta(minutes=90))
     assert fresh["signal"] is not None
     assert stale["signal"] is None and stale["checks"]["fresh"] is False
+
+
+def test_reset_baseline_also_resets_daily_loss(cfg, tmp_path):
+    risk = RiskManager(cfg["safety"], tmp_path)
+    risk.update(100_000)
+    risk.update(10_000)               # t.ex. demokontot återställt till 10 000
+    assert risk.state.halted
+    risk.unlock(10_000, reset_baseline=True)
+    risk.update(10_000)
+    assert risk.can_open(10_000) == (True, "OK")
+
+
+def test_old_broken_state_is_repaired(cfg, tmp_path):
+    # Så såg state ut efter upplåsning i tidigare versioner: dagens start kvar på 100 000.
+    risk = RiskManager(cfg["safety"], tmp_path)
+    risk.update(100_000)
+    risk.update(10_000)
+    risk.unlock(10_000, reset_baseline=True)
+    risk.state.day_start_equity = 100_000
+    risk.save()
+    again = RiskManager(cfg["safety"], tmp_path)
+    again.update(10_000)
+    assert again.can_open(10_000) == (True, "OK")

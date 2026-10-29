@@ -144,6 +144,7 @@ class RiskManager:
             self.state.day = today
             self.state.day_start_equity = equity
             self.save()
+        self._repair_day_baseline(today)
         if not self.state.halted and equity <= self.kill_level:
             self.halt(
                 f"Nödbroms: equity {equity:,.2f} har tappat {self.drawdown_pct(equity):.1f} % "
@@ -153,6 +154,20 @@ class RiskManager:
             )
             return True
         return False
+
+    def _repair_day_baseline(self, today: str) -> None:
+        """Rättar state från äldre versioner, där upplåsning med nytt startkapital inte
+        nollställde dagens startvärde (gav t.ex. "Daglig förlustgräns nådd (90 %)")."""
+        st = self.state
+        if not (st.day_start_equity and st.start_equity and st.day_start_equity > st.start_equity):
+            return
+        for ev in reversed(st.history):
+            if ev.get("event") == "unlocked" and ev.get("reset_baseline"):
+                if datetime.fromisoformat(ev["at"]).astimezone(ET).date().isoformat() == today:
+                    st.day_start_equity = st.start_equity
+                    self._event("day_baseline_repaired", day_start_equity=st.start_equity)
+                    self.save()
+                return
 
     def halt(self, reason: str, now: datetime | None = None) -> None:
         now = now or utcnow()
@@ -175,7 +190,8 @@ class RiskManager:
         day_start = self.state.day_start_equity or equity
         day_loss = (1 - equity / day_start) * 100 if day_start else 0.0
         if day_loss >= float(self.cfg.get("max_daily_loss_pct", 8.0)):
-            return False, f"Daglig förlustgräns nådd ({day_loss:.1f} %)"
+            return False, (f"Daglig förlustgräns nådd ({day_loss:.1f} %: från {day_start:,.0f} "
+                           f"till {equity:,.0f} sedan midnatt New York-tid)")
         return True, "OK"
 
     def record_trade(self, pnl: float, now: datetime | None = None) -> None:
@@ -199,6 +215,8 @@ class RiskManager:
             if current_equity is None:
                 raise RuntimeError("Kan inte nollställa startkapital utan aktuell equity.")
             self.state.start_equity = current_equity
+            # Dagens förlust ska räknas från det nya startkapitalet, inte från före stoppet.
+            self.state.day_start_equity = current_equity
         elif current_equity is not None and current_equity <= self.kill_level:
             raise RuntimeError(
                 "Kontot ligger fortfarande under nödbromsnivån. Välj att använda nuvarande "
