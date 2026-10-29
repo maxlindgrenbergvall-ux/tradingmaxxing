@@ -53,6 +53,8 @@ CHECK_LABELS = {
     "volatile_enough": "Volatilitet",
     "green_bar": "Grön stapel",
     "fresh": "Färsk data",
+    "spread_ok": "Låg spread",
+    "not_recent": "Ej nyss såld",
 }
 
 

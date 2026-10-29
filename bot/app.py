@@ -209,7 +209,7 @@ class Controller:
                 "burst_pct": st.get("min_burst_pct", 0.6), "max_burst_pct": st.get("max_burst_pct", 3.0),
                 "vol_ratio": st.get("volume_mult", 1.8), "range_ratio": st.get("range_expansion_mult", 1.3),
                 "close_loc": st.get("min_close_location", 0.65), "atr_pct": st.get("min_atr_pct", 0.15),
-                "burst_bars": st.get("burst_bars", 5),
+                "burst_bars": st.get("burst_bars", 5), "max_spread_pct": st.get("max_spread_pct", 0.15),
             },
         }
 

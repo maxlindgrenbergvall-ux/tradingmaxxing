@@ -700,7 +700,8 @@ function render(s) {
 
 /* ---------- signalradar ---------- */
 const CHECKS = { burst: "Rörelse uppåt", not_overextended: "Inte för sent", volume: "Volym", range_expansion: "Range",
-  close_near_high: "Stängning nära topp", volatile_enough: "Volatilitet", green_bar: "Grön stapel", fresh: "Färsk data" };
+  close_near_high: "Stängning nära topp", volatile_enough: "Volatilitet", green_bar: "Grön stapel", fresh: "Färsk data",
+  spread_ok: "Låg spread", not_recent: "Ej nyss såld" };
 function radar(s) {
   const sc = s.scan, el = $("radar");
   if (!sc || !sc.last) {
@@ -719,7 +720,7 @@ function radar(s) {
   const rows = [...sc.last.rows].sort((a, b) => (b.ready - a.ready) || ((b.passed || 0) - (a.passed || 0)));
   const cell = (ok, txt, title) => `<td class="num ${ok === undefined ? "" : ok ? "ok" : "no"}" title="${esc(title)}">${txt}</td>`;
   const n = (v, d = 2) => v == null ? "–" : nf2.format(+v.toFixed(d));
-  el.innerHTML = `<table><thead><tr><th>Symbol</th><th class="num">Pris</th><th class="num">Rörelse ${th.burst_bars} min</th><th class="num">Volym</th><th class="num">Range</th><th class="num">Stängning</th><th class="num">ATR</th><th class="num">Ålder</th><th>Villkor</th><th>Status</th></tr></thead><tbody>${
+  el.innerHTML = `<table><thead><tr><th>Symbol</th><th class="num">Pris</th><th class="num">Rörelse ${th.burst_bars} min</th><th class="num">Volym</th><th class="num">Range</th><th class="num">Stängning</th><th class="num">ATR</th><th class="num">Spread</th><th class="num">Ålder</th><th>Villkor</th><th>Status</th></tr></thead><tbody>${
     rows.map((r) => {
       const m = r.metrics || {}, c = r.checks || {};
       const missing = Object.entries(c).filter(([, ok]) => !ok).map(([k]) => CHECKS[k] || k);
@@ -734,6 +735,7 @@ function radar(s) {
         cell(c.range_expansion, m.range_ratio == null ? "–" : "×" + n(m.range_ratio, 1), `Krav: minst ×${th.range_ratio}`) +
         cell(c.close_near_high, m.close_loc == null ? "–" : Math.round(m.close_loc * 100) + " %", `Krav: minst ${Math.round(th.close_loc * 100)} % av stapelns höjd`) +
         cell(c.volatile_enough, m.atr_pct == null ? "–" : n(m.atr_pct, 2) + " %", `Krav: minst ${th.atr_pct} %`) +
+        cell(c.spread_ok, m.spread_pct == null ? "–" : n(m.spread_pct, 3) + " %", `Krav: högst ${th.max_spread_pct} % mellan köp- och säljpris`) +
         cell(c.fresh, m.age_min == null ? "–" : m.age_min < 1 ? "<1 min" : Math.round(m.age_min) + " min", "Senaste minutstapeln får vara högst 3 min gammal") +
         `<td>${dots}</td><td>${status}</td></tr>`;
     }).join("")

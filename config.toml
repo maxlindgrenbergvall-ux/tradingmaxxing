@@ -42,6 +42,14 @@ reward_risk = 2.0
 trail_after_r = 1.0               # flytta stopp till break-even efter +1R
 max_hold_minutes = 30
 
+# Kostnader: köp sker till ask, sälj till bid, och Alpaca tar avgift per kryptoorder.
+max_spread_pct = 0.15             # hoppa över symboler med större spread än så
+min_stop_spread_mult = 4.0        # stoppet minst 4 x spreaden bort (annars stoppas man ut direkt)
+min_stop_pct = 0.3                # och minst 0,3 % från köppriset
+fee_pct = 0.25                    # uppskattad avgift per order i % (Alpaca krypto, små konton)
+min_edge_mult = 2.0               # målet måste vara minst 2 x (spread + avgifter) bort
+reentry_minutes = 5               # köp inte samma symbol igen direkt efter en exit
+
 [sizing]
 # ATR-baserad storlek (samma formel som position-sizer-skillen).
 risk_per_trade_pct = 1.0
@@ -72,7 +80,10 @@ min_atr_pct = 0.02
 atr_stop_mult = 1.0
 reward_risk = 1.5
 trail_after_r = 0.7
-max_hold_minutes = 8
+max_hold_minutes = 15
+max_spread_pct = 0.2
+min_stop_pct = 0.25
+reentry_minutes = 3
 
 [profiles.hogfrekvens.sizing]
 risk_per_trade_pct = 0.4          # lägre risk per trade eftersom de blir många
@@ -104,11 +115,14 @@ min_atr_pct = 0.0
 atr_stop_mult = 1.0
 reward_risk = 1.2
 trail_after_r = 0.6
-max_hold_minutes = 5
+max_hold_minutes = 10
+max_spread_pct = 0.25
+min_stop_pct = 0.2
+reentry_minutes = 2
 
 [profiles.maxfrekvens.sizing]
-risk_per_trade_pct = 0.25
-max_position_pct = 10.0
+risk_per_trade_pct = 0.1          # små positioner: många trades men liten kostnad per trade
+max_position_pct = 3.0
 max_open_positions = 8
 
 [profiles.maxfrekvens.safety]

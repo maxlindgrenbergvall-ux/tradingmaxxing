@@ -139,3 +139,36 @@ def test_old_broken_state_is_repaired(cfg, tmp_path):
     again = RiskManager(cfg["safety"], tmp_path)
     again.update(10_000)
     assert again.can_open(10_000) == (True, "OK")
+
+
+def test_stop_never_inside_spread(cfg, tmp_path):
+    # Regression: stoppet låg närmare än spreaden, så varje köp stoppades ut direkt.
+    from bot.strategy import Signal
+    risk = RiskManager(cfg["safety"], tmp_path)
+    eng = Engine(cfg, SimBroker(symbols(cfg), seed=1), risk)
+    sig = Signal("X", entry=100.0, stop=99.95, target=100.1, atr=0.03, score=1, reasons=())
+    entry, stop, target, why = eng._costed(sig, {"bid": 99.95, "ask": 100.05})
+    assert why is None and entry == 100.05
+    spread = 0.10
+    assert entry - stop >= 4 * spread - 1e-9          # minst 4 x spread
+    assert stop < 99.95                                # under nuvarande bid
+    fees = 2 * entry * cfg["strategy"]["fee_pct"] / 100
+    assert target - entry >= 2 * (spread + fees) - 1e-9
+    _, _, _, why = eng._costed(sig, {"bid": 99.0, "ask": 101.0})
+    assert why and "spread" in why
+
+
+def test_no_instant_stop_out_churn(cfg, tmp_path):
+    # Med spread ska boten inte köpa och stoppas ut om och om igen.
+    from bot.config import apply_profile
+    c = apply_profile(cfg, "maxfrekvens")
+    b = SimBroker(symbols(c), seed=5, spread=0.2)
+    eng = Engine(c, b, RiskManager(c["safety"], tmp_path))
+    for _ in range(120):
+        b.tick()
+        for _ in range(6):
+            eng.step(b.now)
+    import json
+    j = [json.loads(line) for line in open(eng.journal_path)]
+    instant = [t for t in j if t["exit_reason"] == "stop" and t["closed_at"] == t["opened_at"]]
+    assert len(j) > 20 and not instant

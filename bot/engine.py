@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from .broker import Broker, norm
@@ -39,6 +39,8 @@ class Engine:
         self.signals_seen = 0
         self.orders_sent = 0
         self._last_summary = 0.0
+        self.recent_exits: dict[str, datetime] = {}
+        self.skipped: dict[str, int] = {"spread": 0, "edge": 0, "reentry": 0}
         self.trades: dict[str, dict] = (
             json.loads(self.trades_path.read_text()) if self.trades_path.exists() else {}
         )
@@ -102,7 +104,17 @@ class Engine:
         self._save_trades()
         self.last_positions = {}
 
+    def _quotes(self, syms: list[str]) -> dict[str, dict]:
+        if not syms:
+            return {}
+        try:
+            return self.broker.quotes(syms)
+        except Exception as e:
+            log.warning("Kunde inte hämta bid/ask: %s", e)
+            return {}
+
     def _manage_exits(self, positions: dict[str, dict], now: datetime) -> None:
+        quotes = self._quotes(list(self.trades))
         for sym in list(self.trades):
             t = self.trades[sym]
             p = positions.get(norm(sym))
@@ -116,7 +128,10 @@ class Engine:
                 t.update(entry=p["avg_entry_price"], stop=t["stop"] + shift,
                          initial_stop=t["initial_stop"] + shift, target=t["target"] + shift,
                          qty=p["qty"], fill_confirmed=True)
-            price = p["current_price"]
+            # Bedöm stopp/mål mot bid – det pris vi faktiskt kan sälja till.
+            q = quotes.get(sym)
+            price = q["bid"] if q else p["current_price"]
+            t["last_bid"] = price
             r = t["entry"] - t["initial_stop"]
             if r > 0 and price >= t["entry"] + r * self.s.get("trail_after_r", 1.0):
                 t["stop"] = max(t["stop"], t["entry"])
@@ -137,7 +152,27 @@ class Engine:
                 self._journal({**t, "symbol": sym, "exit_price": price, "exit_reason": reason,
                                "pnl": round(pnl, 2), "closed_at": now.isoformat()})
                 del self.trades[sym]
+                self.recent_exits[sym] = now
         self._save_trades()
+
+    def _costed(self, sig, quote: dict | None):
+        """Anpassar en signal efter verkliga kostnader. Returnerar (entry, stop, target, skäl)."""
+        s = self.s
+        if not quote:
+            return sig.entry, sig.stop, sig.target, None
+        bid, ask = quote["bid"], quote["ask"]
+        mid = (bid + ask) / 2
+        spread = ask - bid
+        spread_pct = spread / mid * 100
+        if spread_pct > s.get("max_spread_pct", 0.15):
+            return None, None, None, f"spread {spread_pct:.2f} % > {s.get('max_spread_pct', 0.15)} %"
+        entry = ask
+        stop_dist = max(sig.entry - sig.stop,
+                        spread * s.get("min_stop_spread_mult", 4.0),
+                        entry * s.get("min_stop_pct", 0.3) / 100)
+        cost = spread + 2 * entry * s.get("fee_pct", 0.25) / 100
+        reward = max(stop_dist * s.get("reward_risk", 2.0), cost * s.get("min_edge_mult", 2.0))
+        return entry, entry - stop_dist, entry + reward, None
 
     def _enter(self, acct: dict, positions: dict[str, dict], now: datetime) -> None:
         free_slots = int(self.z.get("max_open_positions", 3)) - len(positions)
@@ -147,10 +182,24 @@ class Engine:
         held = set(positions)
         bars = self.broker.bars(self.symbols, self.s.get("timeframe", "1Min"),
                                 int(self.s.get("lookback_bars", 60)))
+        quotes = self._quotes(self.symbols)
+        reentry = timedelta(minutes=float(self.s.get("reentry_minutes", 5)))
         rows, signals = [], []
         for sym in self.symbols:
             d = diagnose(sym, bars.get(sym, []), self.s, now)
             d["held"] = norm(sym) in held
+            q = quotes.get(sym)
+            if q and d.get("total"):
+                sp = (q["ask"] - q["bid"]) / ((q["ask"] + q["bid"]) / 2) * 100
+                d["metrics"]["spread_pct"] = sp
+                d["checks"]["spread_ok"] = sp <= self.s.get("max_spread_pct", 0.15)
+            last_exit = self.recent_exits.get(sym)
+            if last_exit and d.get("total"):
+                d["checks"]["not_recent"] = now - last_exit >= reentry
+            if d.get("total"):
+                d["passed"], d["total"] = sum(d["checks"].values()), len(d["checks"])
+                if not all(d["checks"].values()):
+                    d["signal"] = None
             if d["signal"] and not d["held"]:
                 signals.append(d["signal"])
             rows.append({k: v for k, v in d.items() if k != "signal"} | {"ready": bool(d["signal"])})
@@ -161,13 +210,17 @@ class Engine:
         signals.sort(key=lambda x: x.score, reverse=True)
         buying_power = acct["buying_power"]
         for sig in signals[:free_slots]:
+            entry, stop, target, why = self._costed(sig, quotes.get(sig.symbol))
+            if why:
+                log.info("%s: hoppar över köp – %s", sig.symbol, why)
+                continue
             qty = position_size(
-                equity=acct["equity"], buying_power=buying_power, entry=sig.entry, stop=sig.stop,
+                equity=acct["equity"], buying_power=buying_power, entry=entry, stop=stop,
                 risk_pct=self.z.get("risk_per_trade_pct", 1.0),
                 max_position_pct=self.z.get("max_position_pct", 20.0),
                 fractional=self.fractional,
             )
-            if qty <= 0 or qty * sig.entry < 10:
+            if qty <= 0 or qty * entry < 10:
                 log.warning("%s: signal men för liten position (%.6f st) – hoppar över.", sig.symbol, qty)
                 continue
             try:
@@ -176,14 +229,14 @@ class Engine:
                 log.error("Köporder för %s nekades: %s", sig.symbol, e)
                 continue
             self.orders_sent += 1
-            buying_power -= qty * sig.entry
+            buying_power -= qty * entry
             self.trades[sig.symbol] = {
-                "order_id": order_id, "qty": qty, "entry": sig.entry, "stop": sig.stop,
-                "initial_stop": sig.stop, "target": sig.target, "opened_at": now.isoformat(),
+                "order_id": order_id, "qty": qty, "entry": entry, "stop": stop,
+                "initial_stop": stop, "target": target, "opened_at": now.isoformat(),
                 "score": sig.score, "reasons": list(sig.reasons), "fill_confirmed": False,
             }
             log.info("ENTRY %s qty=%s @ ~%.4f stop %.4f target %.4f [%s]",
-                     sig.symbol, qty, sig.entry, sig.stop, sig.target, ", ".join(sig.reasons))
+                     sig.symbol, qty, entry, stop, target, ", ".join(sig.reasons))
         self._save_trades()
 
     def _log_summary(self, rows: list[dict], n_signals: int) -> None:

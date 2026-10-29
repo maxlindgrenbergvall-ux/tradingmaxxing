@@ -25,6 +25,7 @@ class Broker(Protocol):
     def account(self) -> dict: ...
     def positions(self) -> dict[str, dict]: ...
     def bars(self, symbols: list[str], timeframe: str, limit: int) -> dict[str, list[Bar]]: ...
+    def quotes(self, symbols: list[str]) -> dict[str, dict]: ...
     def market_open(self) -> bool: ...
     def buy(self, symbol: str, qty: float) -> str: ...
     def close(self, symbol: str) -> None: ...
@@ -112,6 +113,22 @@ class AlpacaBroker:
             params["page_token"] = token
         return {s: b[-limit:] for s, b in out.items()}
 
+    def quotes(self, symbols: list[str]) -> dict[str, dict]:
+        """Senaste köp-/säljkurs (bid/ask) per symbol."""
+        if self.crypto:
+            url = f"{DATA_URL}/v1beta3/crypto/us/latest/quotes"
+            params = {"symbols": ",".join(symbols)}
+        else:
+            url = f"{DATA_URL}/v2/stocks/quotes/latest"
+            params = {"symbols": ",".join(symbols), "feed": "iex"}
+        data = self._req("GET", url, params=params) or {}
+        out = {}
+        for sym, q in (data.get("quotes") or {}).items():
+            bid, ask = float(q.get("bp") or 0), float(q.get("ap") or 0)
+            if bid > 0 and ask >= bid:
+                out[sym] = {"bid": bid, "ask": ask}
+        return out
+
     def market_open(self) -> bool:
         if self.crypto:
             return True
@@ -139,12 +156,16 @@ class SimBroker:
     """Offline-simulator med slumpmässiga prisserier och volatilitetsutbrott.
     Används för `python -m bot sim` och tester - inga riktiga pengar eller API."""
 
-    def __init__(self, symbols: list[str], cash: float = 100_000, seed: int | None = 1, drift: float = 0.0):
+    def __init__(self, symbols: list[str], cash: float = 100_000, seed: int | None = 1, drift: float = 0.0,
+                 spread: float | None = None, fee_pct: float = 0.25):
         self.rng = random.Random(seed)
         self.cash = cash
         self.drift = drift
         self.pos: dict[str, dict] = {}
         self.series: dict[str, list[Bar]] = {}
+        # Spread i procent per symbol – som hos en riktig mäklare köper man till ask och säljer till bid.
+        self.fee = fee_pct / 100
+        self.spread_pct = {s: (spread if spread is not None else self.rng.uniform(0.05, 0.4)) for s in symbols}
         self.minute = 0
         self.burst_left: dict[str, int] = {}
         self.burst_dir: dict[str, int] = {}
@@ -187,6 +208,19 @@ class SimBroker:
         for s, bars in self.series.items():
             self._step(s, bars[-1].c)
 
+    def _key(self, symbol: str) -> str:
+        for s in self.series:
+            if norm(s) == norm(symbol):
+                return s
+        raise KeyError(symbol)
+
+    def quotes(self, symbols: list[str]) -> dict[str, dict]:
+        out = {}
+        for sym in symbols:
+            mid, half = self.price(sym), self.spread_pct[self._key(sym)] / 200
+            out[sym] = {"bid": mid * (1 - half), "ask": mid * (1 + half)}
+        return out
+
     def price(self, symbol: str) -> float:
         for s, bars in self.series.items():
             if norm(s) == norm(symbol):
@@ -216,8 +250,8 @@ class SimBroker:
         return True
 
     def buy(self, symbol: str, qty: float) -> str:
-        px = self.price(symbol)
-        self.cash -= px * qty
+        px = self.quotes([symbol])[symbol]["ask"]
+        self.cash -= px * qty * (1 + self.fee)
         key = norm(symbol)
         p = self.pos.get(key)
         if p:
@@ -232,7 +266,7 @@ class SimBroker:
         key = norm(symbol)
         p = self.pos.pop(key, None)
         if p:
-            self.cash += p["qty"] * self.price(key)
+            self.cash += p["qty"] * self.quotes([key])[key]["bid"] * (1 - self.fee)
 
     def flatten(self) -> None:
         for s in list(self.pos):
