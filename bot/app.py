@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .broker import AlpacaBroker, SimBroker, norm
-from .config import DEFAULT_PATH, load_config, symbols
+from .config import DEFAULT_PATH, apply_profile, load_config, profiles, symbols
 from .engine import Engine
 from .risk import RiskManager, utcnow
 
@@ -44,19 +44,27 @@ class Controller:
     """Startar/stoppar boten och samlar ihop allt dashboarden visar."""
 
     def __init__(self):
-        self.cfg = load_config()
+        self.base_cfg = load_config()
+        self.cfg = self.base_cfg
         self.state_root = ROOT / self.cfg["runtime"].get("state_dir", "state")
         self.state_root.mkdir(parents=True, exist_ok=True)
+        self._bar_cache: dict[str, tuple[float, dict]] = {}
+        self.thread: threading.Thread | None = None
         self.creds_path = self.state_root / "credentials.json"
+        self.settings_path = self.state_root / "settings.json"
+        settings = json.loads(self.settings_path.read_text()) if self.settings_path.exists() else {}
+        self.profile = "normal"
+        try:
+            self.set_profile(settings.get("profile", "hogfrekvens"), save=False)
+        except ValueError:
+            pass
         self._load_credentials()
         self.lock = threading.Lock()
-        self.thread: threading.Thread | None = None
         self.stop_event = threading.Event()
         self.engine: Engine | None = None
         self.mode = "paper"
         self.error: str | None = None
         self.sim_clock: datetime | None = None
-        self._bar_cache: dict[str, tuple[float, dict]] = {}
         self._data_broker: AlpacaBroker | None = None
         self._bars_lock = threading.Lock()
 
@@ -78,6 +86,15 @@ class Controller:
         self._data_broker = None
         os.chmod(self.creds_path, 0o600)
         return {"ok": True, "equity": acct["equity"]}
+
+    def set_profile(self, name: str, save: bool = True) -> None:
+        if self.running:
+            raise RuntimeError("Stoppa boten innan du byter tempo.")
+        self.cfg = apply_profile(self.base_cfg, name)
+        self.profile = name
+        self._bar_cache = {}
+        if save:
+            self.settings_path.write_text(json.dumps({"profile": name}))
 
     def has_keys(self) -> bool:
         return bool(os.environ.get("ALPACA_API_KEY") and os.environ.get("ALPACA_SECRET_KEY"))
@@ -234,6 +251,20 @@ class Controller:
             if peak:
                 max_dd = max(max_dd, (1 - p["equity"] / peak) * 100)
 
+        # Frekvens: trades per timme och snittlig hålltid
+        now_dt = self.sim_clock if (mode == "sim" and self.sim_clock) else utcnow()
+        holds, first_open = [], None
+        for t in closed:
+            try:
+                o, c = datetime.fromisoformat(t["opened_at"]), datetime.fromisoformat(t["closed_at"])
+            except (KeyError, ValueError):
+                continue
+            holds.append((c - o).total_seconds() / 60)
+            first_open = o if first_open is None else min(first_open, o)
+        hours = (now_dt - first_open).total_seconds() / 3600 if first_open else 0
+        last_hour = [t for t in closed if "closed_at" in t
+                     and (now_dt - datetime.fromisoformat(t["closed_at"])).total_seconds() <= 3600]
+
         wins = [t["pnl"] for t in closed if t["pnl"] > 0]
         losses = [t["pnl"] for t in closed if t["pnl"] <= 0]
         gross_win, gross_loss = sum(wins), -sum(losses)
@@ -292,7 +323,12 @@ class Controller:
             "paper_only_days": int(self.cfg["safety"].get("paper_only_days", 7)),
             "positions": positions,
             "max_positions": int(self.cfg["sizing"].get("max_open_positions", 3)),
-            "closed": closed[-100:][::-1],
+            "closed": closed[-200:][::-1],
+            "trades_per_hour": len(closed) / hours if hours >= 0.25 else None,
+            "trades_last_hour": len(last_hour),
+            "avg_hold_min": sum(holds) / len(holds) if holds else None,
+            "profile": self.profile,
+            "profiles": profiles(self.base_cfg),
             "equity_series": [{"t": p["t"], "v": p["equity"]} for p in series],
             "logs": list(MEMLOG.lines)[-120:][::-1],
             "watchlist": symbols(self.cfg),
@@ -359,6 +395,9 @@ def make_handler(ctrl: Controller):
                     out = {"ok": True, "msg": ctrl.unlock(body.get("confirm", ""), bool(body.get("reset")))}
                 elif self.path == "/api/crash-test":
                     ctrl.crash_test()
+                    out = {"ok": True}
+                elif self.path == "/api/profile":
+                    ctrl.set_profile(body.get("profile", "normal"))
                     out = {"ok": True}
                 elif self.path == "/api/mode":
                     if ctrl.running:

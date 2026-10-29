@@ -26,6 +26,30 @@ def load_config(path: str | Path | None = None) -> dict[str, Any]:
     return cfg
 
 
+def profiles(cfg: dict[str, Any]) -> dict[str, str]:
+    out = {"normal": "Normal"}
+    for name, prof in cfg.get("profiles", {}).items():
+        out[name] = prof.get("label", name)
+    return out
+
+
+def apply_profile(cfg: dict[str, Any], name: str | None) -> dict[str, Any]:
+    """Returnerar en kopia av cfg där profilens värden skriver över grundvärdena."""
+    import copy
+
+    out = copy.deepcopy(cfg)
+    if not name or name == "normal":
+        return out
+    prof = cfg.get("profiles", {}).get(name)
+    if prof is None:
+        raise ValueError(f"Okänd profil: {name}")
+    for section, values in prof.items():
+        if isinstance(values, dict):
+            out.setdefault(section, {}).update(values)
+    out["active_profile"] = name
+    return out
+
+
 def symbols(cfg: dict[str, Any]) -> list[str]:
     s = cfg["strategy"]
     return list(s["crypto_symbols"] if s["asset_class"] == "crypto" else s["stock_symbols"])

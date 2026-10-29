@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import random
 from datetime import datetime, timedelta, timezone
@@ -75,6 +76,21 @@ class AlpacaBroker:
         return out
 
     def bars(self, symbols: list[str], timeframe: str, limit: int) -> dict[str, list[Bar]]:
+        try:
+            return self._bars(symbols, timeframe, limit)
+        except RuntimeError:
+            if len(symbols) == 1:
+                raise
+        # En ogiltig symbol får inte stoppa resten: hämta en i taget och hoppa över fel.
+        out: dict[str, list[Bar]] = {}
+        for sym in symbols:
+            try:
+                out.update(self._bars([sym], timeframe, limit))
+            except RuntimeError as e:
+                logging.getLogger("bot").warning("Hoppar över %s: %s", sym, e)
+        return out
+
+    def _bars(self, symbols: list[str], timeframe: str, limit: int) -> dict[str, list[Bar]]:
         start = (datetime.now(timezone.utc) - timedelta(minutes=limit * 3 + 30)).isoformat()
         if self.crypto:
             url = f"{DATA_URL}/v1beta3/crypto/us/bars"

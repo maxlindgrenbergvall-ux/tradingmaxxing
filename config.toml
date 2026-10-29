@@ -52,3 +52,36 @@ max_open_positions = 3
 poll_seconds = 30
 state_dir = "state"
 log_file = "state/bot.log"
+
+# ---------------------------------------------------------------------------
+# Tempoprofiler. Väljs i appen (Tempo) eller med `python -m bot run --profile hogfrekvens`.
+# Värdena här skriver över motsvarande värden ovan.
+[profiles.hogfrekvens]
+label = "Hög frekvens"
+
+[profiles.hogfrekvens.strategy]
+crypto_symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "DOGE/USD", "AVAX/USD", "LINK/USD",
+                  "LTC/USD", "BCH/USD", "UNI/USD", "AAVE/USD", "DOT/USD"]
+burst_bars = 3
+min_burst_pct = 0.12
+max_burst_pct = 5.0
+volume_mult = 1.0
+range_expansion_mult = 0.9
+min_close_location = 0.5
+min_atr_pct = 0.02
+atr_stop_mult = 1.0
+reward_risk = 1.5
+trail_after_r = 0.7
+max_hold_minutes = 8
+
+[profiles.hogfrekvens.sizing]
+risk_per_trade_pct = 0.4          # lägre risk per trade eftersom de blir många
+max_position_pct = 15.0
+max_open_positions = 6
+
+[profiles.hogfrekvens.safety]
+losing_streak_n = 10              # nödbromsen (25 %) och dagsgränsen (8 %) gäller som vanligt
+cooldown_minutes = 15
+
+[profiles.hogfrekvens.runtime]
+poll_seconds = 10

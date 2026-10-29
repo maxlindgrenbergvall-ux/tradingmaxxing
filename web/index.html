@@ -107,7 +107,7 @@ header { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, v
 /* ---------- grid & cards ---------- */
 .grid { display: grid; gap: 16px; margin-top: 20px; }
 .hero-grid { grid-template-columns: 1.35fr 1fr 1fr; }
-.tiles { grid-template-columns: repeat(4, 1fr); }
+.tiles { grid-template-columns: repeat(5, 1fr); }
 .charts { grid-template-columns: 1.7fr 1fr; }
 .tables { grid-template-columns: 1fr; }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; box-shadow: var(--shadow); min-width: 0; }
@@ -245,6 +245,7 @@ a { color: var(--accent); }
   .charts { grid-template-columns: 1fr; }
   .tiles { grid-template-columns: repeat(2, 1fr); }
 }
+@media (max-width: 1280px) and (min-width: 1081px) { .tiles { grid-template-columns: repeat(5, 1fr); } .tile .value { font-size: 22px; } }
 @media (max-width: 640px) {
   .wrap { padding: 0 16px 32px; }
   .bar { padding: 10px 16px; gap: 10px; }
@@ -268,6 +269,7 @@ a { color: var(--accent); }
       <button id="m-paper" aria-pressed="true">Demokonto</button>
       <button id="m-sim" aria-pressed="false">Simulering</button>
     </div>
+    <div class="seg" role="group" aria-label="Tempo" id="tempo" title="Tempo: hur ofta boten handlar"></div>
     <span id="status-pill" class="pill"><span class="dot"></span><span id="status-text">Stoppad</span></span>
     <button id="toggle" class="btn primary">
       <svg id="toggle-ic" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
@@ -505,6 +507,15 @@ function render(s) {
   $("m-paper").setAttribute("aria-pressed", s.mode === "paper");
   $("m-sim").setAttribute("aria-pressed", s.mode === "sim");
   $("m-paper").disabled = $("m-sim").disabled = s.running;
+  const tempoKey = JSON.stringify([s.profiles, s.profile, s.running]);
+  if ($("tempo").dataset.k !== tempoKey) {
+    $("tempo").dataset.k = tempoKey;
+    $("tempo").innerHTML = Object.entries(s.profiles).map(([k, label]) =>
+      `<button data-p="${esc(k)}" aria-pressed="${k === s.profile}" ${s.running ? "disabled" : ""}>${esc(label)}</button>`).join("");
+    $("tempo").querySelectorAll("button").forEach((b) => b.onclick = async () => {
+      try { await api("/api/profile", { profile: b.dataset.p }); toast("Tempo: " + b.textContent); refresh(); } catch (e) { toast(e.message); }
+    });
+  }
   const pill = $("status-pill");
   pill.className = "pill" + (s.halted ? " halt" : s.running ? " run" : "");
   $("status-text").textContent = s.halted ? "Nödbroms – stoppad" : s.running ? "Kör" : "Stoppad";
@@ -576,6 +587,8 @@ function render(s) {
     { label: "Snitt per trade", value: signed(s.expectancy), cls: s.expectancy > 0 ? "pos" : s.expectancy < 0 ? "neg" : "", hint: "Förväntat värde" },
     { label: "Snittvinst / snittförlust", value: s.avg_win == null && s.avg_loss == null ? "–" : `${s.avg_win == null ? "–" : compactMoney(s.avg_win)} / ${s.avg_loss == null ? "–" : compactMoney(s.avg_loss)}`, hint: s.avg_win && s.avg_loss ? `Kvot ${nf2.format(Math.abs(s.avg_win / s.avg_loss))}` : "Per stängd trade" },
     { label: "Största drawdown", value: pct(s.max_drawdown_pct), hint: "Från högsta kontovärde" },
+    { label: "Trades per timme", value: s.trades_per_hour == null ? "–" : nf1.format(s.trades_per_hour), hint: `${s.trades_last_hour} stängda senaste timmen` },
+    { label: "Snitt hålltid", value: s.avg_hold_min == null ? "–" : s.avg_hold_min < 1 ? "<1 min" : `${nf1.format(s.avg_hold_min)} min`, hint: `Tidsstopp efter ${s.max_hold_minutes} min` },
     { label: "Öppna positioner", value: `${s.positions.length} / ${s.max_positions}`, hint: s.block_reason && s.block_reason.startsWith("COOLDOWN") ? "Paus efter förlustserie" : `Förluster i rad: ${s.losing_streak}` },
   ];
   $("tiles").innerHTML = tiles.map((t) => `<div class="card tile"><div class="label">${t.label}</div><div class="value ${t.cls || ""}">${t.value}</div><div class="hint">${t.hint}</div></div>`).join("");
@@ -661,7 +674,7 @@ function niceTicks(lo, hi, n) {
 function pnlChart(s) {
   const el = $("pnl-chart");
   if (el.dataset.hover === "1") return;
-  const trades = s.closed.slice(0, 40).reverse();
+  const trades = s.closed.slice(0, 80).reverse();
   if (!trades.length) { el.innerHTML = `<div class="empty">Varje stängd trade visas här som en stapel.</div>`; return; }
   const W = el.clientWidth || 400, H = 280, m = { t: 12, r: 8, b: 26, l: 52 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;

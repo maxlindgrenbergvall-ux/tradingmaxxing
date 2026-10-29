@@ -25,6 +25,8 @@ Byggd på idéerna i [tradermonty/claude-trading-skills](https://github.com/trad
 3. Första starten installerar allt (cirka en minut). Sedan öppnas dashboarden.
 4. Prova **Simulering** → **Starta** direkt, eller klicka på kugghjulet och klistra in dina Alpaca Paper-nycklar och kör **Demokonto**.
 
+**Tempo:** välj *Normal* eller *Hög frekvens* uppe i menyraden (när boten är stoppad). Hög frekvens är förvalt: lösare instegskrav, max 8 min per trade, upp till 6 positioner, 11 krypton, kontroll var 10:e sekund och 0,4 % risk per trade. Nödbromsen vid −25 % och dagsgränsen 8 % gäller i båda lägena. Inställningarna finns under `[profiles.hogfrekvens]` i `config.toml`.
+
 **Live-positioner:** varje öppen position får ett eget kort med resultat, R-multipel, ett spår från stopp till mål, tid kvar till tidsstoppet och ett live-diagram. Växla mellan **TradingView** (TradingViews officiella livediagram) och **Botens vy** (ljusstakar med inköp, stopp och mål inritade, byggt med TradingViews öppna bibliotek Lightweight Charts). Klicka på en rad under Öppna positioner för att hoppa till dess diagram. Utan öppna positioner kan du bevaka valfri symbol från bevakningslistan.
 
 Dashboarden visar kontovärde, avstånd till nödbromsen, demoveckans dagar, resultat idag och totalt, vinstfrekvens, profit factor, snitt per trade, största drawdown, en kurva över kontovärdet, resultat per trade, öppna positioner, tradehistorik och logg. Boten kör så länge programfönstret (eller terminalfönstret) är öppet, och datorn hindras från att somna.

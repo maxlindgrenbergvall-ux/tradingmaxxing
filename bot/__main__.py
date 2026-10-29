@@ -15,7 +15,7 @@ from datetime import timedelta
 from pathlib import Path
 
 from .broker import AlpacaBroker, SimBroker
-from .config import DEFAULT_PATH, load_config, symbols
+from .config import DEFAULT_PATH, apply_profile, load_config, symbols
 from .engine import Engine
 from .risk import RiskManager, utcnow
 
@@ -34,7 +34,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="bot")
     ap.add_argument("--config", default=str(DEFAULT_PATH))
     sub = ap.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("run")
+    r = sub.add_parser("run")
+    r.add_argument("--profile", default="normal", help="t.ex. hogfrekvens")
     sub.add_parser("status")
     u = sub.add_parser("unlock")
     u.add_argument("--confirm", required=True, help="Skriv GRANSKAT för att bekräfta manuell granskning")
@@ -44,9 +45,10 @@ def main(argv: list[str] | None = None) -> int:
     sm.add_argument("--minutes", type=int, default=600)
     sm.add_argument("--drift", type=float, default=-0.0004, help="negativ = fallande marknad")
     sm.add_argument("--seed", type=int, default=7)
+    sm.add_argument("--profile", default="normal")
     args = ap.parse_args(argv)
 
-    cfg = load_config(args.config)
+    cfg = apply_profile(load_config(args.config), getattr(args, "profile", None))
     state_dir = ROOT / cfg["runtime"].get("state_dir", "state")
 
     if args.cmd == "sim":
