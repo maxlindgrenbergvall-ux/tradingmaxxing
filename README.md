@@ -17,7 +17,17 @@ Byggd på idéerna i [tradermonty/claude-trading-skills](https://github.com/trad
 3. Daglig förlustgräns (8 %), paus 60 min efter 4 förluster i rad, max 3 positioner, 1 % risk/trade, max 20 % av kontot per position.
 4. 10 fel i rad i loopen → stopp för granskning.
 
-## Kom igång
+## Programmet med dashboard (enklast)
+1. Installera Python från <https://www.python.org/downloads/> (Windows: bocka i **Add python.exe to PATH**).
+2. Packa upp mappen och dubbelklicka på
+   - **Mac:** `Starta Momentum Bot.command` (första gången: högerklicka → **Öppna** → **Öppna**)
+   - **Windows:** `Starta Momentum Bot.bat` (om SmartScreen varnar: **Mer info** → **Kör ändå**)
+3. Första starten installerar allt (cirka en minut). Sedan öppnas dashboarden.
+4. Prova **Simulering** → **Starta** direkt, eller klicka på kugghjulet och klistra in dina Alpaca Paper-nycklar och kör **Demokonto**.
+
+Dashboarden visar kontovärde, avstånd till nödbromsen, demoveckans dagar, resultat idag och totalt, vinstfrekvens, profit factor, snitt per trade, största drawdown, en kurva över kontovärdet, resultat per trade, öppna positioner, tradehistorik och logg. Boten kör så länge programfönstret (eller terminalfönstret) är öppet, och datorn hindras från att somna.
+
+## Kom igång (kommandorad)
 1. Skapa ett gratis konto på <https://alpaca.markets>, gå till **Paper Trading** och generera API-nycklar.
 2. Installera och starta:
 ```bash

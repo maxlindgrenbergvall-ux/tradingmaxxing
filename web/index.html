@@ -1,0 +1,663 @@
+<!doctype html>
+<html lang="sv">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Momentum Bot</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7;
+  --surface: #fcfcfb;
+  --surface-2: #f3f2ee;
+  --ink: #0b0b0b;
+  --ink-2: #52514e;
+  --muted: #898781;
+  --grid: #e1e0d9;
+  --axis: #c3c2b7;
+  --border: rgba(11,11,11,0.10);
+  --accent: #2a78d6;
+  --accent-wash: rgba(42,120,214,0.10);
+  --gain: #2a78d6;
+  --loss: #e34948;
+  --up-text: #006300;
+  --down-text: #b42c2c;
+  --good: #0ca30c;
+  --warning: #fab219;
+  --serious: #ec835a;
+  --critical: #d03b3b;
+  --critical-wash: rgba(208,59,59,0.08);
+  --warning-wash: rgba(250,178,25,0.12);
+  --shadow: 0 1px 2px rgba(11,11,11,0.04), 0 4px 16px rgba(11,11,11,0.04);
+  --radius: 14px;
+  --font: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232322;
+    --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+    --accent: #3987e5; --accent-wash: rgba(57,135,229,0.14);
+    --gain: #3987e5; --loss: #e66767; --up-text: #0ca30c; --down-text: #e66767;
+    --critical-wash: rgba(208,59,59,0.16); --warning-wash: rgba(250,178,25,0.10);
+    --shadow: none;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --surface-2: #232322;
+  --ink: #f0efec; --ink-2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --border: rgba(255,255,255,0.10);
+  --accent: #3987e5; --accent-wash: rgba(57,135,229,0.14);
+  --gain: #3987e5; --loss: #e66767; --up-text: #0ca30c; --down-text: #e66767;
+  --critical-wash: rgba(208,59,59,0.16); --warning-wash: rgba(250,178,25,0.10);
+  --shadow: none;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body { background: var(--page); color: var(--ink); font: 14px/1.45 var(--font); -webkit-font-smoothing: antialiased; }
+button, input, select { font: inherit; color: inherit; }
+.wrap { max-width: 1320px; margin: 0 auto; padding: 0 24px 48px; }
+
+/* ---------- header ---------- */
+header { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, var(--page) 86%, transparent);
+  backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); }
+.bar { max-width: 1320px; margin: 0 auto; padding: 12px 24px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; font-weight: 650; font-size: 16px; letter-spacing: -0.01em; margin-right: auto; }
+.brand svg { width: 28px; height: 28px; }
+.seg { display: inline-flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+.seg button { border: 0; background: transparent; padding: 6px 12px; border-radius: 7px; cursor: pointer; color: var(--ink-2); font-weight: 550; }
+.seg button[aria-pressed="true"] { background: var(--accent-wash); color: var(--accent); }
+.seg button:disabled { cursor: not-allowed; }
+.seg button:disabled:not([aria-pressed="true"]) { opacity: .5; }
+.pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 999px; font-weight: 600; font-size: 13px;
+  border: 1px solid var(--border); background: var(--surface); white-space: nowrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.pill.run .dot { background: var(--good); box-shadow: 0 0 0 0 rgba(12,163,12,.5); animation: pulse 1.8s infinite; }
+.pill.halt { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 40%, transparent); background: var(--critical-wash); }
+.pill.halt .dot { background: var(--critical); }
+@keyframes pulse { 70% { box-shadow: 0 0 0 7px rgba(12,163,12,0); } 100% { box-shadow: 0 0 0 0 rgba(12,163,12,0); } }
+.btn { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--surface); padding: 8px 14px;
+  border-radius: 10px; cursor: pointer; font-weight: 600; transition: background .15s, transform .05s; }
+.btn:hover { background: var(--surface-2); }
+.btn:active { transform: translateY(1px); }
+.btn.primary { background: var(--accent); border-color: transparent; color: #fff; }
+.btn.primary:hover { background: color-mix(in srgb, var(--accent) 88%, black); }
+.btn.danger { color: var(--critical); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.icon-btn { width: 36px; height: 36px; padding: 0; justify-content: center; }
+.icon-btn svg { width: 18px; height: 18px; }
+
+/* ---------- banners ---------- */
+.banner { margin-top: 20px; border-radius: var(--radius); padding: 14px 18px; display: flex; gap: 14px; align-items: flex-start;
+  border: 1px solid var(--border); background: var(--surface); }
+.banner svg { flex: none; width: 22px; height: 22px; margin-top: 1px; }
+.banner.critical { background: var(--critical-wash); border-color: color-mix(in srgb, var(--critical) 35%, transparent); }
+.banner.critical svg { color: var(--critical); }
+.banner.warning { background: var(--warning-wash); border-color: color-mix(in srgb, var(--warning) 40%, transparent); }
+.banner.warning svg { color: #c98500; }
+.banner.info svg { color: var(--accent); }
+.banner .grow > b { display: block; margin-bottom: 2px; }
+.banner .grow { flex: 1; }
+.banner p { margin: 0; color: var(--ink-2); }
+
+/* ---------- grid & cards ---------- */
+.grid { display: grid; gap: 16px; margin-top: 20px; }
+.hero-grid { grid-template-columns: 1.35fr 1fr 1fr; }
+.tiles { grid-template-columns: repeat(4, 1fr); }
+.charts { grid-template-columns: 1.7fr 1fr; }
+.tables { grid-template-columns: 1fr; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 20px; box-shadow: var(--shadow); min-width: 0; }
+.card h2 { margin: 0; font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.card .sub { color: var(--muted); font-size: 12.5px; }
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+.hero-value { font-size: 52px; font-weight: 650; letter-spacing: -0.025em; line-height: 1.05; margin: 10px 0 8px; }
+.delta { font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+.delta.up { color: var(--up-text); } .delta.down { color: var(--down-text); } .delta.flat { color: var(--ink-2); }
+.big { font-size: 30px; font-weight: 650; letter-spacing: -0.02em; margin: 8px 0 4px; }
+
+.meter { position: relative; height: 12px; border-radius: 999px; background: var(--surface-2); overflow: hidden; margin: 14px 0 8px; }
+.meter > i { position: absolute; inset: 0 auto 0 0; border-radius: 999px; background: var(--accent); transition: width .5s, background .3s; }
+.meter-scale { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.state-line { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-2); margin-top: 10px; }
+.state-line svg { width: 16px; height: 16px; flex: none; }
+
+.week { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; margin: 14px 0 8px; }
+.week span { height: 12px; border-radius: 4px; background: var(--surface-2); position: relative; overflow: hidden; }
+.week span i { position: absolute; inset: 0 auto 0 0; background: var(--accent); }
+
+.tile .label { font-size: 13px; color: var(--ink-2); font-weight: 550; }
+.tile .value { font-size: 26px; font-weight: 650; letter-spacing: -0.02em; margin: 6px 0 2px; }
+.tile .hint { font-size: 12.5px; color: var(--muted); }
+
+/* ---------- charts ---------- */
+.chart { position: relative; width: 100%; }
+.chart svg { display: block; width: 100%; overflow: visible; }
+.chart .tick { fill: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.chart .gridline { stroke: var(--grid); stroke-width: 1; }
+.chart .baseline { stroke: var(--axis); stroke-width: 1; }
+.tip { position: absolute; pointer-events: none; background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 8px 10px; font-size: 12.5px; box-shadow: 0 6px 24px rgba(0,0,0,.16); white-space: nowrap; opacity: 0; transition: opacity .1s; z-index: 2; }
+.tip b { display: block; font-size: 14px; }
+.tip .m { color: var(--muted); }
+.legend { display: flex; gap: 14px; font-size: 12.5px; color: var(--ink-2); flex-wrap: wrap; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.sw.line { height: 2px; width: 14px; border-radius: 1px; }
+.sw.dash { height: 0; width: 14px; border-top: 2px dashed; border-radius: 0; }
+.empty { display: grid; place-items: center; color: var(--muted); text-align: center; min-height: 200px; font-size: 13px; }
+
+/* ---------- tables ---------- */
+.tabs { display: flex; gap: 4px; overflow-x: auto; max-width: 100%; }
+.tabs button { white-space: nowrap; border: 0; background: transparent; padding: 6px 10px; border-radius: 8px; color: var(--ink-2); cursor: pointer; font-weight: 600; }
+.tabs button[aria-selected="true"] { background: var(--accent-wash); color: var(--accent); }
+.tbl-wrap { overflow-x: auto; margin: 0 -20px; padding: 0 20px; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 8px 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+td { padding: 10px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+.sym { font-weight: 650; }
+.tag { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 6px; background: var(--surface-2); color: var(--ink-2); }
+.pos { color: var(--up-text); font-weight: 600; } .neg { color: var(--down-text); font-weight: 600; }
+
+.logs { font-family: var(--mono); font-size: 12px; max-height: 320px; overflow: auto; margin: 0 -20px -18px; padding: 0 20px 14px; }
+.logs div { display: grid; grid-template-columns: 64px 74px 1fr; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--grid); }
+.logs .t { color: var(--muted); }
+.lvl { font-weight: 700; font-size: 11px; }
+.lvl.INFO { color: var(--ink-2); } .lvl.WARNING { color: #c98500; } .lvl.ERROR, .lvl.CRITICAL { color: var(--critical); }
+.logs .msg { word-break: break-word; }
+
+/* ---------- dialog ---------- */
+dialog { border: 1px solid var(--border); border-radius: 18px; background: var(--surface); color: var(--ink); padding: 0; width: min(480px, calc(100vw - 32px)); box-shadow: 0 24px 64px rgba(0,0,0,.3); }
+dialog::backdrop { background: rgba(0,0,0,.45); backdrop-filter: blur(2px); }
+.dlg { padding: 22px 24px; }
+.dlg h3 { margin: 0 0 6px; font-size: 18px; }
+.dlg p { margin: 0 0 16px; color: var(--ink-2); }
+.field { display: grid; gap: 6px; margin-bottom: 14px; }
+.field label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+.field input[type=text], .field input[type=password] { padding: 10px 12px; border-radius: 10px; border: 1px solid var(--axis); background: var(--page); }
+.field input:focus { outline: 2px solid var(--accent); outline-offset: 1px; }
+.check { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; color: var(--ink-2); margin-bottom: 14px; }
+.dlg-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 6px; }
+.msg-box { font-size: 13px; margin-bottom: 12px; min-height: 18px; }
+.msg-box.err { color: var(--critical); } .msg-box.ok { color: var(--up-text); }
+a { color: var(--accent); }
+.steps { margin: 0 0 16px; padding-left: 20px; color: var(--ink-2); font-size: 13px; }
+.steps li { margin-bottom: 4px; }
+
+.toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(20px); background: var(--ink); color: var(--page);
+  padding: 10px 16px; border-radius: 10px; font-weight: 600; opacity: 0; transition: .2s; pointer-events: none; z-index: 50; max-width: calc(100vw - 32px); }
+.toast.show { opacity: 1; transform: translateX(-50%); }
+
+@media (max-width: 1080px) {
+  .hero-grid { grid-template-columns: 1fr 1fr; }
+  .hero-grid .card:first-child { grid-column: 1 / -1; }
+  .charts { grid-template-columns: 1fr; }
+  .tiles { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 640px) {
+  .wrap { padding: 0 16px 32px; }
+  .bar { padding: 10px 16px; gap: 10px; }
+  .hero-grid { grid-template-columns: 1fr; }
+  .hero-value { font-size: 40px; }
+  .tile .value { font-size: 22px; }
+  .tiles { gap: 10px; }
+  .card { padding: 16px; }
+  .tbl-wrap { margin: 0 -16px; padding: 0 16px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <div class="brand">
+      <svg viewBox="0 0 28 28" aria-hidden="true"><rect width="28" height="28" rx="8" fill="var(--accent)"/><path d="M6 18l5-5 4 3 7-8" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/><circle cx="22" cy="8" r="2" fill="#fff"/></svg>
+      Momentum Bot
+    </div>
+    <div class="seg" role="group" aria-label="Läge">
+      <button id="m-paper" aria-pressed="true">Demokonto</button>
+      <button id="m-sim" aria-pressed="false">Simulering</button>
+    </div>
+    <span id="status-pill" class="pill"><span class="dot"></span><span id="status-text">Stoppad</span></span>
+    <button id="toggle" class="btn primary">
+      <svg id="toggle-ic" viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      <span id="toggle-text">Starta</span>
+    </button>
+    <button id="crash" class="btn danger" hidden title="Simulera en krasch för att testa nödbromsen">Krasch-test</button>
+    <button id="settings" class="btn icon-btn" title="Inställningar" aria-label="Inställningar">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+    <button id="theme" class="btn icon-btn" title="Byt tema" aria-label="Byt tema">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg>
+    </button>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="banners"></div>
+
+  <section class="grid hero-grid">
+    <div class="card">
+      <div class="card-head"><h2>Kontovärde</h2><span class="sub" id="asset-sub"></span></div>
+      <div class="hero-value" id="equity">–</div>
+      <div><span id="total-delta" class="delta flat">–</span> <span class="sub">sedan start</span></div>
+      <div class="sub" style="margin-top:6px" id="start-sub">Startkapital –</div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2>Avstånd till nödbroms</h2><span class="sub" id="kill-lim">gräns −25 %</span></div>
+      <div class="big" id="kill-left">–</div>
+      <div class="meter" role="meter" aria-label="Förbrukad förlustbudget" aria-valuemin="0" aria-valuemax="100" id="kill-meter"><i id="kill-fill" style="width:0"></i></div>
+      <div class="meter-scale"><span>0 %</span><span id="kill-used">0 % förbrukat</span><span id="kill-max">−25 %</span></div>
+      <div class="state-line" id="kill-state"></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h2 id="week-title">Demovecka</h2><span class="sub" id="week-sub"></span></div>
+      <div class="big" id="week-value">–</div>
+      <div class="week" id="week"></div>
+      <div class="state-line" id="week-state"></div>
+    </div>
+  </section>
+
+  <section class="grid tiles" id="tiles"></section>
+
+  <section class="grid charts">
+    <div class="card">
+      <div class="card-head">
+        <h2>Kontovärde över tid</h2>
+        <div class="legend">
+          <span><i class="sw line" style="background:var(--accent)"></i>Kontovärde</span>
+          <span><i class="sw dash" style="border-color:var(--muted)"></i>Startkapital</span>
+          <span><i class="sw dash" style="border-color:var(--critical)"></i>Nödbroms</span>
+        </div>
+      </div>
+      <div class="chart" id="eq-chart"></div>
+    </div>
+    <div class="card">
+      <div class="card-head">
+        <h2>Resultat per trade</h2>
+        <div class="legend">
+          <span><i class="sw" style="background:var(--gain)"></i>Vinst</span>
+          <span><i class="sw" style="background:var(--loss)"></i>Förlust</span>
+        </div>
+      </div>
+      <div class="chart" id="pnl-chart"></div>
+    </div>
+  </section>
+
+  <section class="grid tables">
+    <div class="card">
+      <div class="card-head">
+        <div class="tabs" role="tablist">
+          <button role="tab" aria-selected="true" data-tab="open">Öppna positioner <span id="open-n"></span></button>
+          <button role="tab" aria-selected="false" data-tab="closed">Tradehistorik <span id="closed-n"></span></button>
+          <button role="tab" aria-selected="false" data-tab="log">Logg</button>
+        </div>
+        <span class="sub" id="block-sub"></span>
+      </div>
+      <div id="tab-open" class="tbl-wrap"></div>
+      <div id="tab-closed" class="tbl-wrap" hidden></div>
+      <div id="tab-log" class="logs" hidden></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg-settings">
+  <form class="dlg" method="dialog" id="keys-form">
+    <h3>Koppla Alpaca demokonto</h3>
+    <p>Nycklarna sparas bara lokalt på din dator. Använd <b>Paper Trading</b>-nycklar – boten kopplar aldrig upp mot ett riktigt konto.</p>
+    <ol class="steps">
+      <li>Logga in på <a href="https://app.alpaca.markets" target="_blank" rel="noopener">app.alpaca.markets</a></li>
+      <li>Välj <b>Paper Trading</b> uppe till vänster</li>
+      <li>Klicka <b>Generate API keys</b> och klistra in dem här</li>
+    </ol>
+    <div class="field"><label for="k">API Key</label><input id="k" type="text" autocomplete="off" spellcheck="false"></div>
+    <div class="field"><label for="s">Secret Key</label><input id="s" type="password" autocomplete="off"></div>
+    <div class="msg-box" id="keys-msg"></div>
+    <div class="dlg-actions">
+      <button class="btn" value="cancel" formnovalidate>Stäng</button>
+      <button class="btn primary" id="keys-save" type="button">Testa &amp; spara</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-unlock">
+  <form class="dlg" method="dialog">
+    <h3>Lås upp efter granskning</h3>
+    <p>Gå igenom tradehistoriken och kontot innan du fortsätter. Skriv <b>GRANSKAT</b> för att bekräfta.</p>
+    <div class="field"><label for="u">Bekräftelse</label><input id="u" type="text" autocomplete="off" placeholder="GRANSKAT"></div>
+    <label class="check"><input type="checkbox" id="u-reset"> Använd nuvarande kontovärde som nytt startkapital (krävs om kontot fortfarande ligger under gränsen)</label>
+    <div class="msg-box" id="unlock-msg"></div>
+    <div class="dlg-actions">
+      <button class="btn" value="cancel" formnovalidate>Avbryt</button>
+      <button class="btn primary" id="unlock-go" type="button">Lås upp</button>
+    </div>
+  </form>
+</dialog>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const nf2 = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const nf1 = new Intl.NumberFormat("sv-SE", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+const money = (v) => v == null ? "–" : "$" + nf2.format(v);
+const signed = (v) => v == null ? "–" : (v > 0 ? "+" : v < 0 ? "−" : "") + "$" + nf2.format(Math.abs(v));
+const pct = (v, d = 1) => v == null ? "–" : (d === 1 ? nf1 : nf2).format(v) + " %";
+const price = (v) => v == null ? "–" : v >= 100 ? nf2.format(v) : new Intl.NumberFormat("sv-SE", { maximumSignificantDigits: 5 }).format(v);
+const qtyFmt = (v) => new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 6 }).format(v);
+const compactMoney = (v) => {
+  const a = Math.abs(v), sign = v < 0 ? "−" : "";
+  if (a >= 1e6) return sign + "$" + nf1.format(a / 1e6) + " mn";
+  if (a >= 1e4) return sign + "$" + nf1.format(a / 1e3) + "k";
+  return sign + "$" + new Intl.NumberFormat("sv-SE", { maximumFractionDigits: 0 }).format(a);
+};
+const hm = (iso) => new Date(iso).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
+const timeFmt = (iso) => new Date(iso).toLocaleString("sv-SE", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+const REASONS = { stop: "Stopp", target: "Mål", time_stop: "Tidsstopp", kill_switch: "Nödbroms" };
+
+const ICON = {
+  alert: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4M12 17h.01"/></svg>',
+  info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg>',
+  ok: '<svg viewBox="0 0 24 24" fill="none" stroke="var(--good)" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m8 12 3 3 5-6"/></svg>',
+  warn: '<svg viewBox="0 0 24 24" fill="none" stroke="#c98500" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v5M12 16h.01"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" fill="none" stroke="var(--critical)" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6M9 9l6 6"/></svg>',
+  play: '<path d="M8 5v14l11-7z"/>',
+  pause: '<path d="M7 5h4v14H7zM13 5h4v14h-4z"/>',
+};
+
+let S = null;
+let tab = "open";
+
+/* ---------- API ---------- */
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error || "Fel");
+  return data;
+}
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toast.h); toast.h = setTimeout(() => t.classList.remove("show"), 3200);
+}
+
+/* ---------- theme ---------- */
+try { const th = localStorage.getItem("theme"); if (th) document.documentElement.dataset.theme = th; } catch {}
+$("theme").onclick = () => {
+  const cur = document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  const next = cur === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = next;
+  try { localStorage.setItem("theme", next); } catch {}
+  if (S) render(S);
+};
+
+/* ---------- controls ---------- */
+$("m-paper").onclick = () => setMode("paper");
+$("m-sim").onclick = () => setMode("sim");
+async function setMode(m) {
+  try { await api("/api/mode", { mode: m }); refresh(); } catch (e) { toast(e.message); }
+}
+$("toggle").onclick = async () => {
+  $("toggle").disabled = true;
+  try {
+    if (S.running) { await api("/api/stop", {}); toast("Boten stoppad"); }
+    else if (S.mode === "paper" && !S.has_keys) { openSettings(); }
+    else { await api("/api/start", { mode: S.mode }); toast(S.mode === "sim" ? "Simulering startad – 1 sekund = 1 minut" : "Boten kör mot demokontot"); }
+  } catch (e) { toast(e.message); }
+  $("toggle").disabled = false;
+  refresh();
+};
+$("crash").onclick = async () => { try { await api("/api/crash-test", {}); toast("Krasch simulerad – titta på nödbromsen"); } catch (e) { toast(e.message); } };
+$("settings").onclick = () => openSettings();
+function openSettings() { $("keys-msg").textContent = ""; $("dlg-settings").showModal(); }
+$("keys-save").onclick = async () => {
+  const m = $("keys-msg"); m.className = "msg-box"; m.textContent = "Testar anslutningen…";
+  try {
+    const r = await api("/api/keys", { key: $("k").value, secret: $("s").value });
+    m.className = "msg-box ok"; m.textContent = "Ansluten! Demokontots värde: " + money(r.equity);
+    $("s").value = "";
+    setTimeout(() => $("dlg-settings").close(), 1200);
+    refresh();
+  } catch (e) { m.className = "msg-box err"; m.textContent = e.message; }
+};
+$("unlock-go").onclick = async () => {
+  const m = $("unlock-msg"); m.className = "msg-box";
+  try {
+    const r = await api("/api/unlock", { confirm: $("u").value, reset: $("u-reset").checked });
+    m.className = "msg-box ok"; m.textContent = r.msg;
+    setTimeout(() => $("dlg-unlock").close(), 1000); refresh();
+  } catch (e) { m.className = "msg-box err"; m.textContent = e.message; }
+};
+document.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
+  tab = b.dataset.tab;
+  document.querySelectorAll(".tabs button").forEach((x) => x.setAttribute("aria-selected", x === b));
+  ["open", "closed", "log"].forEach((t) => $("tab-" + t).hidden = t !== tab);
+});
+
+/* ---------- render ---------- */
+function render(s) {
+  // header
+  $("m-paper").setAttribute("aria-pressed", s.mode === "paper");
+  $("m-sim").setAttribute("aria-pressed", s.mode === "sim");
+  $("m-paper").disabled = $("m-sim").disabled = s.running;
+  const pill = $("status-pill");
+  pill.className = "pill" + (s.halted ? " halt" : s.running ? " run" : "");
+  $("status-text").textContent = s.halted ? "Nödbroms – stoppad" : s.running ? "Kör" : "Stoppad";
+  $("toggle-text").textContent = s.running ? "Stoppa" : "Starta";
+  $("toggle-ic").innerHTML = s.running ? ICON.pause : ICON.play;
+  $("toggle").className = "btn " + (s.running ? "" : "primary");
+  $("toggle").disabled = s.halted && !s.running && s.mode === "paper";
+  if (s.mode === "sim" && !s.running && s.halted) $("toggle-text").textContent = "Ny simulering";
+  $("crash").hidden = !(s.mode === "sim" && s.running);
+
+  // banners
+  const b = [];
+  if (s.halted) b.push(`<div class="banner critical">${ICON.alert}<div class="grow"><b>Nödbromsen har löst ut – boten väntar på manuell granskning</b><p>${esc(s.halt_reason)}</p></div><button class="btn" id="open-unlock">Granska &amp; lås upp</button></div>`);
+  if (s.error) b.push(`<div class="banner critical">${ICON.alert}<div class="grow"><b>Boten stannade på grund av ett fel</b><p>${esc(s.error)}</p></div></div>`);
+  if (s.mode === "paper" && !s.has_keys) b.push(`<div class="banner info">${ICON.info}<div class="grow"><b>Koppla ditt Alpaca-demokonto</b><p>Skapa ett gratis konto, ta fram Paper Trading-nycklar och klistra in dem. Vill du bara prova först? Välj <b>Simulering</b> uppe till höger.</p></div><button class="btn primary" id="open-keys">Lägg in nycklar</button></div>`);
+  if (s.mode === "sim") b.push(`<div class="banner warning">${ICON.info}<div class="grow"><b>Simuleringsläge – påhittade priser, inga riktiga ordrar</b><p>1 sekund motsvarar 1 marknadsminut. Använd <b>Krasch-test</b> för att se nödbromsen lösa ut.</p></div></div>`);
+  $("banners").innerHTML = b.join("");
+  if ($("open-unlock")) $("open-unlock").onclick = () => { $("u").value = ""; $("u-reset").checked = false; $("unlock-msg").textContent = ""; $("dlg-unlock").showModal(); };
+  if ($("open-keys")) $("open-keys").onclick = openSettings;
+
+  // hero
+  $("asset-sub").textContent = (s.mode === "sim" ? "Simulering" : "Alpaca Paper") + " · " + (s.asset_class === "crypto" ? "Krypto 24/7" : "Aktier");
+  $("equity").textContent = money(s.equity);
+  const td = $("total-delta");
+  const totPct = s.start_equity ? s.total_pnl / s.start_equity * 100 : 0;
+  td.className = "delta " + (s.total_pnl > 0 ? "up" : s.total_pnl < 0 ? "down" : "flat");
+  td.textContent = s.start_equity ? `${s.total_pnl > 0 ? "▲" : s.total_pnl < 0 ? "▼" : ""} ${signed(s.total_pnl)} (${totPct > 0 ? "+" : ""}${nf2.format(totPct)} %)` : "–";
+  $("start-sub").textContent = "Startkapital " + money(s.start_equity);
+
+  // kill switch
+  const used = Math.max(0, s.drawdown_pct) / s.kill_pct * 100;
+  const left = s.kill_pct - Math.max(0, s.drawdown_pct);
+  $("kill-lim").textContent = `gräns −${s.kill_pct} %`;
+  $("kill-max").textContent = `−${s.kill_pct} %`;
+  $("kill-left").textContent = s.halted ? "Utlöst" : s.start_equity ? `${nf1.format(Math.max(0, left))} % kvar` : "–";
+  const fill = $("kill-fill");
+  fill.style.width = Math.min(100, s.halted ? 100 : used) + "%";
+  fill.style.background = s.halted || used >= 80 ? "var(--critical)" : used >= 50 ? "var(--serious)" : used >= 25 ? "var(--warning)" : "var(--accent)";
+  $("kill-meter").setAttribute("aria-valuenow", Math.round(used));
+  $("kill-used").textContent = `${nf1.format(Math.min(100, used))} % förbrukat`;
+  $("kill-state").innerHTML = s.halted ? `${ICON.stop}Alla positioner stängda, väntar på granskning`
+    : s.kill_level ? `${used >= 50 ? ICON.warn : ICON.ok}Stoppar automatiskt vid ${money(s.kill_level)}`
+    : `${ICON.info}Sätts när boten startar första gången`;
+
+  // demo week / sim
+  const wk = $("week");
+  if (s.mode === "sim") {
+    $("week-title").textContent = "Simulerad tid";
+    $("week-sub").textContent = "";
+    $("week-value").textContent = s.sim_time ? new Date(s.sim_time).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" }) : "–";
+    wk.innerHTML = ""; wk.style.display = "none";
+    $("week-state").innerHTML = `${ICON.info}Ny simulering startar från $100 000 varje gång`;
+  } else {
+    wk.style.display = "";
+    $("week-title").textContent = "Demovecka";
+    const d = s.demo_days ?? 0, n = s.paper_only_days;
+    $("week-sub").textContent = `${n} dagar på demokonto`;
+    $("week-value").textContent = s.demo_days == null ? "Ej startad" : d >= n ? "Avklarad" : `Dag ${Math.min(n, Math.floor(d) + 1)} av ${n}`;
+    wk.innerHTML = Array.from({ length: n }, (_, i) => `<span><i style="width:${Math.max(0, Math.min(1, d - i)) * 100}%"></i></span>`).join("");
+    $("week-state").innerHTML = d >= n ? `${ICON.ok}Utvärdera journalen innan du överväger live` : `${ICON.info}Live-handel är spärrad under demoveckan`;
+  }
+
+  // tiles
+  const tiles = [
+    { label: "Resultat idag", value: signed(s.day_pnl), cls: s.day_pnl > 0 ? "pos" : s.day_pnl < 0 ? "neg" : "", hint: "Inkl. orealiserat" },
+    { label: "Realiserat resultat", value: signed(s.realized_pnl), cls: s.realized_pnl > 0 ? "pos" : s.realized_pnl < 0 ? "neg" : "", hint: `${s.trades} stängda trades` },
+    { label: "Vinstfrekvens", value: s.win_rate == null ? "–" : pct(s.win_rate), hint: s.trades ? `${Math.round((s.win_rate || 0) * s.trades / 100)} vinster av ${s.trades}` : "Inga trades än" },
+    { label: "Profit factor", value: s.profit_factor == null ? "–" : nf2.format(s.profit_factor), hint: "Bruttovinst / bruttoförlust · >1 är lönsamt" },
+    { label: "Snitt per trade", value: signed(s.expectancy), cls: s.expectancy > 0 ? "pos" : s.expectancy < 0 ? "neg" : "", hint: "Förväntat värde" },
+    { label: "Snittvinst / snittförlust", value: s.avg_win == null && s.avg_loss == null ? "–" : `${s.avg_win == null ? "–" : compactMoney(s.avg_win)} / ${s.avg_loss == null ? "–" : compactMoney(s.avg_loss)}`, hint: s.avg_win && s.avg_loss ? `Kvot ${nf2.format(Math.abs(s.avg_win / s.avg_loss))}` : "Per stängd trade" },
+    { label: "Största drawdown", value: pct(s.max_drawdown_pct), hint: "Från högsta kontovärde" },
+    { label: "Öppna positioner", value: `${s.positions.length} / ${s.max_positions}`, hint: s.block_reason && s.block_reason.startsWith("COOLDOWN") ? "Paus efter förlustserie" : `Förluster i rad: ${s.losing_streak}` },
+  ];
+  $("tiles").innerHTML = tiles.map((t) => `<div class="card tile"><div class="label">${t.label}</div><div class="value ${t.cls || ""}">${t.value}</div><div class="hint">${t.hint}</div></div>`).join("");
+
+  const why = s.block_reason && s.block_reason.startsWith("COOLDOWN") && s.cooldown_until
+    ? `paus efter förlustserie till ${hm(s.cooldown_until)}` : s.block_reason;
+  $("block-sub").textContent = s.running && why && why !== "OK" ? "Nya trades pausade: " + why : s.running ? "Söker efter momentum-utbrott…" : "";
+
+  equityChart(s);
+  pnlChart(s);
+  tables(s);
+}
+
+/* ---------- equity chart ---------- */
+function equityChart(s) {
+  const el = $("eq-chart");
+  if (el.dataset.hover === "1") return;  // rita inte om under hover
+  const pts = s.equity_series;
+  if (pts.length < 2) { el.innerHTML = `<div class="empty">Kurvan fylls på när boten kör.<br>Starta boten eller prova Simulering.</div>`; return; }
+  const W = el.clientWidth || 700, H = 280, m = { t: 12, r: 12, b: 26, l: 62 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const t0 = new Date(pts[0].t).getTime(), t1 = new Date(pts[pts.length - 1].t).getTime();
+  const vals = pts.map((p) => p.v);
+  let lo = Math.min(...vals, s.start_equity ?? Infinity), hi = Math.max(...vals, s.start_equity ?? -Infinity);
+  const showKill = s.kill_level && s.kill_level >= lo - (hi - lo) * 0.6;
+  if (showKill) lo = Math.min(lo, s.kill_level);
+  const pad = (hi - lo) * 0.08 || hi * 0.01 || 1; lo -= pad; hi += pad;
+  const x = (t) => m.l + (t1 === t0 ? 0 : (t - t0) / (t1 - t0)) * iw;
+  const y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * ih;
+  const ticks = niceTicks(lo, hi, 5);
+  let svg = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Kontovärde över tid">`;
+  svg += `<defs><linearGradient id="eqg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".18"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>`;
+  ticks.forEach((v) => { svg += `<line class="gridline" x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/><text class="tick" x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${compactMoney(v)}</text>`; });
+  const xt = 4;
+  for (let i = 0; i <= xt; i++) {
+    const t = t0 + (t1 - t0) * i / xt;
+    const d = new Date(t);
+    const lbl = (t1 - t0) > 36e5 * 20 ? d.toLocaleDateString("sv-SE", { day: "numeric", month: "short" }) + " " + d.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" }) : d.toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" });
+    svg += `<text class="tick" x="${x(t)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === xt ? "end" : "middle"}">${lbl}</text>`;
+  }
+  if (s.start_equity) svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(s.start_equity)}" y2="${y(s.start_equity)}" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 4"/>`;
+  if (showKill) svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(s.kill_level)}" y2="${y(s.kill_level)}" stroke="var(--critical)" stroke-width="1.5" stroke-dasharray="4 4"/><text x="${m.l + 6}" y="${y(s.kill_level) - 6}" fill="var(--critical)" font-size="11" font-weight="600">Nödbroms ${compactMoney(s.kill_level)}</text>`;
+  const line = pts.map((p, i) => `${i ? "L" : "M"}${x(new Date(p.t).getTime()).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
+  svg += `<path d="${line}L${x(t1)},${m.t + ih}L${x(t0)},${m.t + ih}Z" fill="url(#eqg)"/>`;
+  svg += `<path d="${line}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`;
+  const last = pts[pts.length - 1];
+  svg += `<circle cx="${x(t1)}" cy="${y(last.v)}" r="4" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/>`;
+  svg += `<g id="eq-hover" style="display:none"><line id="eq-x" y1="${m.t}" y2="${m.t + ih}" stroke="var(--axis)" stroke-width="1"/><circle id="eq-dot" r="5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/></g>`;
+  svg += `<rect x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent" id="eq-hit"/></svg><div class="tip" id="eq-tip"></div>`;
+  el.innerHTML = svg;
+  const hit = $("eq-hit"), tip = $("eq-tip"), g = $("eq-hover");
+  const xs = pts.map((p) => x(new Date(p.t).getTime()));
+  const move = (ev) => {
+    const r = el.querySelector("svg").getBoundingClientRect();
+    const px = (ev.clientX - r.left) * (W / r.width);
+    let i = 0, best = Infinity;
+    xs.forEach((xv, k) => { const d = Math.abs(xv - px); if (d < best) { best = d; i = k; } });
+    const p = pts[i];
+    g.style.display = "";
+    $("eq-x").setAttribute("x1", xs[i]); $("eq-x").setAttribute("x2", xs[i]);
+    $("eq-dot").setAttribute("cx", xs[i]); $("eq-dot").setAttribute("cy", y(p.v));
+    const ch = s.start_equity ? p.v - s.start_equity : 0;
+    tip.innerHTML = `<span class="m">${timeFmt(p.t)}</span><b>${money(p.v)}</b><span class="${ch >= 0 ? "pos" : "neg"}">${signed(ch)}</span> <span class="m">mot start</span>`;
+    tip.style.opacity = 1;
+    const sx = xs[i] * r.width / W, tw = tip.offsetWidth;
+    tip.style.left = Math.max(0, Math.min(r.width - tw, sx + 12 + tw > r.width ? sx - tw - 12 : sx + 12)) + "px";
+    tip.style.top = Math.max(0, y(p.v) * r.height / H - 60) + "px";
+  };
+  hit.addEventListener("pointermove", (ev) => { el.dataset.hover = "1"; move(ev); });
+  hit.addEventListener("pointerleave", () => { el.dataset.hover = ""; g.style.display = "none"; tip.style.opacity = 0; });
+}
+
+function niceTicks(lo, hi, n) {
+  const span = hi - lo, step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 2.5, 5, 10].map((k) => k * mag).find((k) => k >= step0);
+  const out = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + 1e-9; v += step) out.push(v);
+  return out;
+}
+
+/* ---------- pnl bars ---------- */
+function pnlChart(s) {
+  const el = $("pnl-chart");
+  if (el.dataset.hover === "1") return;
+  const trades = s.closed.slice(0, 40).reverse();
+  if (!trades.length) { el.innerHTML = `<div class="empty">Varje stängd trade visas här som en stapel.</div>`; return; }
+  const W = el.clientWidth || 400, H = 280, m = { t: 12, r: 8, b: 26, l: 52 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const maxAbs = Math.max(...trades.map((t) => Math.abs(t.pnl)), 1);
+  const lo = Math.min(0, ...trades.map((t) => t.pnl)) * 1.1, hi = Math.max(0, ...trades.map((t) => t.pnl)) * 1.1 || maxAbs * 0.1;
+  const y = (v) => m.t + (1 - (v - lo) / (hi - lo || 1)) * ih;
+  const slot = iw / trades.length, bw = Math.max(2, Math.min(22, slot - 2));
+  let svg = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Resultat per trade">`;
+  niceTicks(lo, hi, 4).forEach((v) => { svg += `<line class="gridline" x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/><text class="tick" x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${compactMoney(v)}</text>`; });
+  trades.forEach((t, i) => {
+    const cx = m.l + slot * i + slot / 2, x0 = cx - bw / 2;
+    const y0 = y(0), y1 = y(t.pnl), h = Math.max(1, Math.abs(y1 - y0)), r = Math.min(4, bw / 2, h);
+    const col = t.pnl >= 0 ? "var(--gain)" : "var(--loss)";
+    const d = t.pnl >= 0
+      ? `M${x0},${y0}V${y0 - h + r}Q${x0},${y0 - h} ${x0 + r},${y0 - h}H${x0 + bw - r}Q${x0 + bw},${y0 - h} ${x0 + bw},${y0 - h + r}V${y0}Z`
+      : `M${x0},${y0}V${y0 + h - r}Q${x0},${y0 + h} ${x0 + r},${y0 + h}H${x0 + bw - r}Q${x0 + bw},${y0 + h} ${x0 + bw},${y0 + h - r}V${y0}Z`;
+    svg += `<path d="${d}" fill="${col}" data-i="${i}"/>`;
+    svg += `<rect x="${m.l + slot * i}" y="${m.t}" width="${slot}" height="${ih}" fill="transparent" data-i="${i}" class="bar-hit"/>`;
+  });
+  svg += `<line class="baseline" x1="${m.l}" x2="${W - m.r}" y1="${y(0)}" y2="${y(0)}"/>`;
+  svg += `<text class="tick" x="${m.l}" y="${H - 6}">Äldst</text><text class="tick" x="${W - m.r}" y="${H - 6}" text-anchor="end">Senaste</text></svg><div class="tip" id="pnl-tip"></div>`;
+  el.innerHTML = svg;
+  const tip = $("pnl-tip");
+  el.querySelectorAll(".bar-hit").forEach((rect) => {
+    rect.addEventListener("pointerenter", () => {
+      el.dataset.hover = "1";
+      const t = trades[+rect.dataset.i];
+      el.querySelectorAll("path[data-i]").forEach((p) => p.style.opacity = p.dataset.i === rect.dataset.i ? 1 : 0.45);
+      tip.innerHTML = `<span class="m">${esc(t.symbol)} · ${REASONS[t.exit_reason] || esc(t.exit_reason)}</span><b class="${t.pnl >= 0 ? "pos" : "neg"}">${signed(t.pnl)}</b><span class="m">${timeFmt(t.closed_at)}</span>`;
+      tip.style.opacity = 1;
+      const r = el.querySelector("svg").getBoundingClientRect();
+      const sx = (+rect.getAttribute("x") + slot / 2) * r.width / W, tw = tip.offsetWidth;
+      tip.style.left = Math.max(0, Math.min(r.width - tw, sx - tw / 2)) + "px";
+      tip.style.top = "0px";
+    });
+    rect.addEventListener("pointerleave", () => { el.dataset.hover = ""; tip.style.opacity = 0; el.querySelectorAll("path[data-i]").forEach((p) => p.style.opacity = 1); });
+  });
+}
+
+/* ---------- tables ---------- */
+function tables(s) {
+  $("open-n").textContent = s.positions.length ? `(${s.positions.length})` : "";
+  $("closed-n").textContent = s.trades ? `(${s.trades})` : "";
+  $("tab-open").innerHTML = s.positions.length ? `<table><thead><tr><th>Symbol</th><th class="num">Antal</th><th class="num">Inköp</th><th class="num">Nu</th><th class="num">Stopp</th><th class="num">Mål</th><th class="num">Orealiserat</th><th>Öppnad</th></tr></thead><tbody>${
+    s.positions.map((p) => `<tr><td class="sym">${esc(p.symbol)}</td><td class="num">${qtyFmt(p.qty)}</td><td class="num">${price(p.entry)}</td><td class="num">${price(p.price)}</td><td class="num">${price(p.stop)}</td><td class="num">${price(p.target)}</td><td class="num ${p.pnl >= 0 ? "pos" : "neg"}">${signed(p.pnl)}</td><td>${timeFmt(p.opened_at)}</td></tr>`).join("")
+  }</tbody></table>` : `<div class="empty" style="min-height:120px">Inga öppna positioner just nu.</div>`;
+  $("tab-closed").innerHTML = s.closed.length ? `<table><thead><tr><th>Stängd</th><th>Symbol</th><th class="num">Antal</th><th class="num">Inköp</th><th class="num">Sälj</th><th>Orsak</th><th class="num">Resultat</th></tr></thead><tbody>${
+    s.closed.map((t) => `<tr><td>${timeFmt(t.closed_at)}</td><td class="sym">${esc(t.symbol)}</td><td class="num">${qtyFmt(t.qty)}</td><td class="num">${price(t.entry)}</td><td class="num">${price(t.exit_price)}</td><td><span class="tag">${REASONS[t.exit_reason] || esc(t.exit_reason)}</span></td><td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${signed(t.pnl)}</td></tr>`).join("")
+  }</tbody></table>` : `<div class="empty" style="min-height:120px">Inga stängda trades än.</div>`;
+  $("tab-log").innerHTML = s.logs.length ? s.logs.map((l) => `<div><span class="t">${esc(l.t)}</span><span class="lvl ${esc(l.level)}">${esc(l.level)}</span><span class="msg">${esc(l.msg)}</span></div>`).join("") : `<div class="empty" style="min-height:120px;display:grid">Loggen är tom.</div>`;
+}
+
+/* ---------- loop ---------- */
+async function refresh() {
+  try { S = await api("/api/status"); render(S); } catch (e) { $("status-text").textContent = "Ingen kontakt med programmet"; }
+}
+let rt; addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => S && render(S), 120); });
+(async function loop() { await refresh(); setTimeout(loop, S && S.mode === "sim" && S.running ? 1000 : 2500); })();
+</script>
+</body>
+</html>

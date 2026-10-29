@@ -31,6 +31,9 @@ class Engine:
         self.trades_path = self.dir / "open_trades.json"
         self.journal_path = self.dir / "journal.jsonl"
         self._last_block = "OK"
+        self.last_account: dict | None = None
+        self.last_positions: dict[str, dict] = {}
+        self.last_block_reason = "OK"
         self.trades: dict[str, dict] = (
             json.loads(self.trades_path.read_text()) if self.trades_path.exists() else {}
         )
@@ -53,14 +56,17 @@ class Engine:
             return False
 
         acct = self.broker.account()
+        self.last_account = acct
         if self.risk.update(acct["equity"], now):
             self._kill()
             return False
 
         positions = self.broker.positions()
+        self.last_positions = positions
         self._manage_exits(positions, now)
 
         ok, why = self.risk.can_open(acct["equity"], now)
+        self.last_block_reason = why
         if why != self._last_block:
             log.info("Nya trades: %s", "tillåtna" if ok else f"blockerade ({why})")
             self._last_block = why
@@ -70,6 +76,7 @@ class Engine:
             log.debug("Marknaden stängd.")
             return True
         self._enter(acct, self.broker.positions(), now)
+        self.last_positions = self.broker.positions()
         return True
 
     def _kill(self) -> None:
@@ -81,9 +88,14 @@ class Engine:
             except Exception:
                 log.exception("Kunde inte stänga positioner - STÄNG MANUELLT!")
         for sym, t in self.trades.items():
-            self._journal({**t, "symbol": sym, "closed_at": utcnow().isoformat(), "exit_reason": "kill_switch"})
+            px = self.last_positions.get(norm(sym), {}).get("current_price")
+            entry = {**t, "symbol": sym, "closed_at": utcnow().isoformat(), "exit_reason": "kill_switch"}
+            if px is not None:
+                entry.update(exit_price=px, pnl=round((px - t["entry"]) * t["qty"], 2))
+            self._journal(entry)
         self.trades = {}
         self._save_trades()
+        self.last_positions = {}
 
     def _manage_exits(self, positions: dict[str, dict], now: datetime) -> None:
         for sym in list(self.trades):
@@ -154,14 +166,19 @@ class Engine:
         self._save_trades()
 
     # ------------------------------------------------------------------
-    def run_forever(self) -> None:
-        poll = float(self.cfg["runtime"].get("poll_seconds", 30))
+    def run_forever(self, stop_event=None, poll: float | None = None, before_step=None,
+                    clock=None) -> None:
+        """Kör tills nödbromsen löser ut eller stop_event sätts.
+        before_step/clock används av simulatorn för att driva fram tiden."""
+        poll = float(poll if poll is not None else self.cfg["runtime"].get("poll_seconds", 30))
         log.info("Startar. Läge=%s, tillgångar=%s, nödbroms vid equity <= %.2f",
                  self.cfg["account"]["mode"], self.s["asset_class"], self.risk.kill_level)
         errors = 0
-        while True:
+        while not (stop_event and stop_event.is_set()):
             try:
-                if not self.step():
+                if before_step:
+                    before_step()
+                if not self.step(clock() if clock else None):
                     log.critical("Boten har stannat för manuell granskning. Se state/HALTED.")
                     return
                 errors = 0
@@ -173,4 +190,8 @@ class Engine:
                 if errors >= 10:
                     self.risk.halt("10 fel i rad - stoppar för granskning.")
                     return
-            time.sleep(poll)
+            if stop_event:
+                stop_event.wait(poll)
+            else:
+                time.sleep(poll)
+        log.info("Boten stoppad av användaren.")

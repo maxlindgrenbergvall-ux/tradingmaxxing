@@ -168,8 +168,8 @@ class RiskManager:
             self.state.start_equity = current_equity
         elif current_equity is not None and current_equity <= self.kill_level:
             raise RuntimeError(
-                "Equity ligger fortfarande under nödbromsnivån - använd --reset-baseline "
-                "om du medvetet vill fortsätta med nuvarande kapital som nytt startkapital."
+                "Kontot ligger fortfarande under nödbromsnivån. Välj att använda nuvarande "
+                "kontovärde som nytt startkapital (--reset-baseline) om du medvetet vill fortsätta."
             )
         self.state.halted = False
         self.state.halt_reason = None

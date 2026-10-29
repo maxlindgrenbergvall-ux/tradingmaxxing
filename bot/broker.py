@@ -45,7 +45,15 @@ class AlpacaBroker:
         self.http.headers.update({"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret})
 
     def _req(self, method: str, url: str, **kw):
-        r = self.http.request(method, url, timeout=TIMEOUT, **kw)
+        import requests
+
+        try:
+            r = self.http.request(method, url, timeout=TIMEOUT, **kw)
+        except requests.RequestException as e:
+            raise RuntimeError("Kunde inte nå Alpaca – kontrollera internetanslutningen.") from e
+        if r.status_code in (401, 403):
+            raise RuntimeError("Alpaca nekade nycklarna – kontrollera att du kopierat "
+                               "Paper Trading-nycklar (inte Live) och att de är rätt.")
         if r.status_code >= 400:
             raise RuntimeError(f"Alpaca {method} {url} -> {r.status_code}: {r.text[:300]}")
         return r.json() if r.content else None
@@ -122,6 +130,8 @@ class SimBroker:
         self.pos: dict[str, dict] = {}
         self.series: dict[str, list[Bar]] = {}
         self.minute = 0
+        self.burst_left: dict[str, int] = {}
+        self.burst_dir: dict[str, int] = {}
         for s in symbols:
             self.series[s] = []
             price = self.rng.uniform(20, 300)
@@ -129,13 +139,25 @@ class SimBroker:
                 price = self._step(s, price)
 
     def _step(self, symbol: str, price: float) -> float:
-        burst = self.rng.random() < 0.03
-        sigma = 0.012 if burst else 0.002
+        # Utbrott pågår några minuter; ungefär hälften fortsätter, resten vänder.
+        left = self.burst_left.get(symbol, 0)
+        if left == 0 and self.rng.random() < 0.012:
+            left = self.rng.randint(4, 9)
+            self.burst_dir[symbol] = 1 if self.rng.random() < 0.5 else -1
+        burst = left > 0
+        self.burst_left[symbol] = max(0, left - 1)
+        if burst:
+            # Första minuterna går uppåt, sedan avgör burst_dir om rörelsen fortsätter.
+            mu = 0.0035 if left > 3 else 0.003 * self.burst_dir.get(symbol, 1)
+            sigma = 0.004
+        else:
+            mu, sigma = self.drift, 0.0015
         o = price
-        c = max(0.01, o * (1 + self.rng.gauss(self.drift + (0.004 if burst else 0), sigma)))
-        h = max(o, c) * (1 + abs(self.rng.gauss(0, sigma / 3)))
-        l = min(o, c) * (1 - abs(self.rng.gauss(0, sigma / 3)))
-        v = self.rng.uniform(800, 1200) * (4 if burst else 1)
+        c = max(0.01, o * (1 + self.rng.gauss(mu, sigma)))
+        wick = sigma / 4 if not burst else 0.0008
+        h = max(o, c) * (1 + abs(self.rng.gauss(0, wick)))
+        l = min(o, c) * (1 - abs(self.rng.gauss(0, wick)))
+        v = self.rng.uniform(800, 1200) * (self.rng.uniform(2.5, 4.5) if burst else 1)
         self.series[symbol].append(Bar(str(self.minute), o, h, l, c, v))
         return c
 
