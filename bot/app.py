@@ -9,7 +9,7 @@ import shutil
 import threading
 import webbrowser
 from collections import deque
-from datetime import datetime, timedelta
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
@@ -56,6 +56,9 @@ class Controller:
         self.mode = "paper"
         self.error: str | None = None
         self.sim_clock: datetime | None = None
+        self._bar_cache: dict[str, tuple[float, dict]] = {}
+        self._data_broker: AlpacaBroker | None = None
+        self._bars_lock = threading.Lock()
 
     # ---------- nycklar ----------
     def _load_credentials(self) -> None:
@@ -72,6 +75,7 @@ class Controller:
         os.environ["ALPACA_SECRET_KEY"] = secret
         acct = AlpacaBroker(self.cfg["strategy"]["asset_class"], "paper").account()
         self.creds_path.write_text(json.dumps({"key": key, "secret": secret}))
+        self._data_broker = None
         os.chmod(self.creds_path, 0o600)
         return {"ok": True, "equity": acct["equity"]}
 
@@ -106,13 +110,14 @@ class Controller:
             if mode == "sim":
                 cfg["runtime"]["poll_seconds"] = 1
                 broker = SimBroker(symbols(cfg), seed=None, drift=-0.0002)
-                self.sim_clock = utcnow()
+                self.sim_clock = broker.now
             else:
                 if not self.has_keys():
                     raise RuntimeError("Lägg in dina Alpaca paper-nycklar under Inställningar först.")
                 risk.check_mode_allowed("paper")
                 broker = AlpacaBroker(cfg["strategy"]["asset_class"], "paper")
             self.mode = mode
+            self._bar_cache = {}
             self.engine = Engine(cfg, broker, risk)
             self.stop_event = threading.Event()
             self.thread = threading.Thread(target=self._run, daemon=True)
@@ -125,7 +130,7 @@ class Controller:
         if self.mode == "sim":
             def advance():
                 eng.broker.tick()
-                self.sim_clock += timedelta(minutes=1)
+                self.sim_clock = eng.broker.now
             kwargs.update(poll=1, before_step=advance, clock=lambda: self.sim_clock)
         orig_step = eng.step
 
@@ -167,6 +172,30 @@ class Controller:
         else:
             eq = AlpacaBroker(self.cfg["strategy"]["asset_class"], "paper").account()["equity"]
         return risk.unlock(eq, reset)
+
+    # ---------- diagramdata för en position ----------
+    def bars(self, symbol: str) -> dict:
+        allowed = {norm(x): x for x in symbols(self.cfg)}
+        if norm(symbol) not in allowed:
+            raise ValueError("Okänd symbol.")
+        symbol = allowed[norm(symbol)]
+        now = utcnow().timestamp()
+        hit = self._bar_cache.get(symbol)
+        if hit and now - hit[0] < (1 if self.mode == "sim" else 5):
+            return hit[1]
+        if self.mode == "sim":
+            if not self.engine:
+                raise RuntimeError("Ingen simulering körs.")
+            rows = list(self.engine.broker.series[symbol][-150:])
+        else:
+            with self._bars_lock:
+                if not self._data_broker:
+                    self._data_broker = AlpacaBroker(self.cfg["strategy"]["asset_class"], "paper")
+                rows = self._data_broker.bars([symbol], "1Min", 150).get(symbol, [])
+        out = {"symbol": symbol,
+               "bars": [{"t": b.t, "o": b.o, "h": b.h, "l": b.l, "c": b.c, "v": b.v} for b in rows]}
+        self._bar_cache[symbol] = (now, out)
+        return out
 
     # ---------- data till dashboarden ----------
     def _record_equity(self, equity: float, at: datetime) -> None:
@@ -219,6 +248,8 @@ class Controller:
                     "symbol": sym, "qty": t["qty"], "entry": t["entry"], "price": cur,
                     "stop": t["stop"], "target": t["target"], "opened_at": t["opened_at"],
                     "pnl": (cur - t["entry"]) * t["qty"],
+                    "initial_stop": t.get("initial_stop", t["stop"]),
+                    "reasons": t.get("reasons", []),
                 })
 
         demo_day = None
@@ -264,6 +295,8 @@ class Controller:
             "closed": closed[-100:][::-1],
             "equity_series": [{"t": p["t"], "v": p["equity"]} for p in series],
             "logs": list(MEMLOG.lines)[-120:][::-1],
+            "watchlist": symbols(self.cfg),
+            "max_hold_minutes": int(self.cfg["strategy"].get("max_hold_minutes", 30)),
             "sim_time": self.sim_clock.isoformat() if (mode == "sim" and self.sim_clock) else None,
         }
 
@@ -289,6 +322,19 @@ def make_handler(ctrl: Controller):
         def do_GET(self):
             if self.path == "/api/status":
                 return self._json(200, ctrl.status())
+            if self.path.startswith("/api/bars"):
+                from urllib.parse import parse_qs, urlparse
+
+                q = parse_qs(urlparse(self.path).query)
+                try:
+                    return self._json(200, ctrl.bars(q.get("symbol", [""])[0]))
+                except Exception as e:
+                    return self._json(400, {"error": str(e)})
+            if self.path.startswith("/vendor/"):
+                f = (WEB / "vendor" / Path(self.path).name)
+                if f.exists():
+                    ctype = "text/javascript" if f.suffix == ".js" else "text/plain"
+                    return self._send(200, f.read_bytes(), ctype + "; charset=utf-8")
             if self.path in ("/", "/index.html"):
                 return self._send(200, (WEB / "index.html").read_bytes(), "text/html; charset=utf-8")
             self._send(404, b"not found", "text/plain")

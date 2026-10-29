@@ -150,7 +150,53 @@ header { position: sticky; top: 0; z-index: 10; background: color-mix(in srgb, v
 .sw.dash { height: 0; width: 14px; border-top: 2px dashed; border-radius: 0; }
 .empty { display: grid; place-items: center; color: var(--muted); text-align: center; min-height: 200px; font-size: 13px; }
 
-/* ---------- tables ---------- */
+/* ---------- live positions ---------- */
+.section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 28px 0 -4px; flex-wrap: wrap; }
+.section-head h2 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: -0.01em; display: flex; align-items: center; gap: 8px; }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--critical); animation: blink 1.6s infinite; }
+@keyframes blink { 50% { opacity: .3; } }
+.live-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 520px), 1fr)); }
+.pos-card { padding: 0; overflow: hidden; scroll-margin-top: 80px; }
+.pos-top { padding: 16px 20px 12px; display: flex; gap: 16px; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.pos-name { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.pos-name .sym { font-size: 18px; }
+.pos-pnl { text-align: right; }
+.pos-pnl .v { font-size: 22px; font-weight: 650; letter-spacing: -0.02em; }
+.pos-pnl .s { font-size: 12.5px; color: var(--muted); }
+.levels { padding: 0 20px 4px; }
+.ltrack { position: relative; height: 8px; border-radius: 999px; background: var(--surface-2); margin: 22px 0 6px; }
+.ltrack .fill { position: absolute; top: 0; bottom: 0; border-radius: 999px; }
+.ltrack .tick { position: absolute; top: -4px; width: 2px; height: 16px; background: var(--ink-2); border-radius: 1px; transform: translateX(-1px); }
+.ltrack .now { position: absolute; top: 50%; width: 14px; height: 14px; border-radius: 50%; border: 3px solid var(--surface); transform: translate(-50%, -50%); box-shadow: 0 0 0 1px var(--border); transition: left .4s; }
+.ltrack .flag { position: absolute; top: -20px; font-size: 11px; font-weight: 600; color: var(--ink-2); transform: translateX(-50%); white-space: nowrap; }
+.lscale { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.lscale b { font-weight: 600; }
+.meta { display: grid; grid-template-columns: repeat(5, 1fr); gap: 1px; background: var(--grid); border-top: 1px solid var(--grid); border-bottom: 1px solid var(--grid); margin-top: 12px; }
+.meta div { background: var(--surface); padding: 8px 12px; min-width: 0; }
+.meta span { display: block; font-size: 11.5px; color: var(--muted); }
+.meta b { font-weight: 600; font-variant-numeric: tabular-nums; font-size: 13px; }
+.view-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px 8px 20px; flex-wrap: wrap; }
+.view-bar .seg button { padding: 4px 10px; font-size: 12.5px; }
+.view-note { font-size: 12px; color: var(--muted); }
+.pos-chart { height: 340px; position: relative; }
+.pos-chart > div { position: absolute; inset: 0; }
+.pos-chart .fallback { display: grid; place-items: center; text-align: center; color: var(--muted); font-size: 13px; padding: 20px; }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 12px; }
+.chip { border: 1px solid var(--border); background: var(--surface-2); border-radius: 999px; padding: 6px 12px; font-weight: 600; cursor: pointer; font-size: 13px; }
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+.close-x { border: 0; background: transparent; cursor: pointer; color: var(--muted); font-size: 20px; line-height: 1; padding: 4px 8px; border-radius: 8px; }
+.close-x:hover { background: var(--surface-2); color: var(--ink); }
+tr.follow { cursor: pointer; }
+tr.follow:hover td { background: var(--surface-2); }
+@media (max-width: 640px) {
+  .meta { grid-template-columns: repeat(3, 1fr); }
+  .meta div:last-child { grid-column: span 2; }
+  .pos-chart { height: 300px; }
+  .pos-top, .levels { padding-left: 16px; padding-right: 16px; }
+  .view-bar { padding-left: 16px; }
+}
+
+/* ---------- tables (css) ---------- */
 .tabs { display: flex; gap: 4px; overflow-x: auto; max-width: 100%; }
 .tabs button { white-space: nowrap; border: 0; background: transparent; padding: 6px 10px; border-radius: 8px; color: var(--ink-2); cursor: pointer; font-weight: 600; }
 .tabs button[aria-selected="true"] { background: var(--accent-wash); color: var(--accent); }
@@ -264,6 +310,19 @@ a { color: var(--accent); }
 
   <section class="grid tiles" id="tiles"></section>
 
+  <div class="section-head">
+    <h2><span class="live-dot" id="live-dot" hidden></span>Live-positioner</h2>
+    <span class="sub" id="live-sub">Följ varje öppen position i realtid</span>
+  </div>
+  <section class="grid live-grid" id="live-grid"></section>
+  <div class="card" id="live-empty" style="margin-top:20px">
+    <div class="empty" style="min-height:150px"><div>
+      <div style="font-weight:600;color:var(--ink-2);font-size:14px">Inga öppna positioner just nu</div>
+      <div style="margin-top:4px">När boten köper dyker ett live-diagram upp här. Under tiden kan du följa marknaden:</div>
+      <div class="chips" id="watch-chips"></div>
+    </div></div>
+  </div>
+
   <section class="grid charts">
     <div class="card">
       <div class="card-head">
@@ -340,6 +399,7 @@ a { color: var(--accent); }
 
 <div class="toast" id="toast"></div>
 
+<script src="/vendor/lightweight-charts.standalone.production.js"></script>
 <script>
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -393,6 +453,7 @@ $("theme").onclick = () => {
   document.documentElement.dataset.theme = next;
   try { localStorage.setItem("theme", next); } catch {}
   if (S) render(S);
+  restyleLive();
 };
 
 /* ---------- controls ---------- */
@@ -526,6 +587,7 @@ function render(s) {
   equityChart(s);
   pnlChart(s);
   tables(s);
+  syncLive(s);
 }
 
 /* ---------- equity chart ---------- */
@@ -644,13 +706,231 @@ function tables(s) {
   $("open-n").textContent = s.positions.length ? `(${s.positions.length})` : "";
   $("closed-n").textContent = s.trades ? `(${s.trades})` : "";
   $("tab-open").innerHTML = s.positions.length ? `<table><thead><tr><th>Symbol</th><th class="num">Antal</th><th class="num">Inköp</th><th class="num">Nu</th><th class="num">Stopp</th><th class="num">Mål</th><th class="num">Orealiserat</th><th>Öppnad</th></tr></thead><tbody>${
-    s.positions.map((p) => `<tr><td class="sym">${esc(p.symbol)}</td><td class="num">${qtyFmt(p.qty)}</td><td class="num">${price(p.entry)}</td><td class="num">${price(p.price)}</td><td class="num">${price(p.stop)}</td><td class="num">${price(p.target)}</td><td class="num ${p.pnl >= 0 ? "pos" : "neg"}">${signed(p.pnl)}</td><td>${timeFmt(p.opened_at)}</td></tr>`).join("")
+    s.positions.map((p) => `<tr class="follow" data-follow="${esc(p.symbol)}" title="Visa live-diagram"><td class="sym">${esc(p.symbol)}</td><td class="num">${qtyFmt(p.qty)}</td><td class="num">${price(p.entry)}</td><td class="num">${price(p.price)}</td><td class="num">${price(p.stop)}</td><td class="num">${price(p.target)}</td><td class="num ${p.pnl >= 0 ? "pos" : "neg"}">${signed(p.pnl)}</td><td>${timeFmt(p.opened_at)}</td></tr>`).join("")
   }</tbody></table>` : `<div class="empty" style="min-height:120px">Inga öppna positioner just nu.</div>`;
   $("tab-closed").innerHTML = s.closed.length ? `<table><thead><tr><th>Stängd</th><th>Symbol</th><th class="num">Antal</th><th class="num">Inköp</th><th class="num">Sälj</th><th>Orsak</th><th class="num">Resultat</th></tr></thead><tbody>${
     s.closed.map((t) => `<tr><td>${timeFmt(t.closed_at)}</td><td class="sym">${esc(t.symbol)}</td><td class="num">${qtyFmt(t.qty)}</td><td class="num">${price(t.entry)}</td><td class="num">${price(t.exit_price)}</td><td><span class="tag">${REASONS[t.exit_reason] || esc(t.exit_reason)}</span></td><td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${signed(t.pnl)}</td></tr>`).join("")
   }</tbody></table>` : `<div class="empty" style="min-height:120px">Inga stängda trades än.</div>`;
+  $("tab-open").querySelectorAll("tr[data-follow]").forEach((tr) => tr.onclick = () => {
+    const c = live.get(tr.dataset.follow); if (c) c.el.scrollIntoView({ behavior: "smooth", block: "start" });
+  });
   $("tab-log").innerHTML = s.logs.length ? s.logs.map((l) => `<div><span class="t">${esc(l.t)}</span><span class="lvl ${esc(l.level)}">${esc(l.level)}</span><span class="msg">${esc(l.msg)}</span></div>`).join("") : `<div class="empty" style="min-height:120px;display:grid">Loggen är tom.</div>`;
 }
+
+/* ---------- live positions ---------- */
+const live = new Map();          // symbol -> kortets state
+let watchSym = null;             // symbol som bevakas när inga positioner finns
+let tvLoad = null;
+const css = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const isDark = () => (document.documentElement.dataset.theme || (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")) === "dark";
+const safeId = (sym) => "live-" + sym.replace(/[^A-Za-z0-9]/g, "");
+const TZ_SHIFT = () => -new Date().getTimezoneOffset() * 60;   // Lightweight Charts visar UTC – flytta till lokal tid
+const tvSymbol = (sym, assetClass) => assetClass === "crypto" ? "COINBASE:" + sym.replace("/", "") : sym;
+
+function loadTradingView() {
+  tvLoad ||= new Promise((res, rej) => {
+    const sc = document.createElement("script");
+    sc.src = "https://s3.tradingview.com/tv.js";
+    sc.onload = () => window.TradingView ? res() : rej();
+    sc.onerror = () => { tvLoad = null; rej(); };
+    document.head.append(sc);
+  });
+  return tvLoad;
+}
+
+function createCard(it, s) {
+  const el = document.createElement("div");
+  el.className = "card pos-card";
+  el.id = safeId(it.symbol);
+  const watch = it.kind === "watch";
+  el.innerHTML = `
+    <div class="pos-top">
+      <div>
+        <div class="pos-name"><span class="sym">${esc(it.symbol)}</span><span class="tag">${watch ? "Bevakning" : "Long"}</span><span class="sub" data-f="qty"></span></div>
+        <div class="sub" data-f="why" style="margin-top:4px"></div>
+      </div>
+      ${watch ? `<button class="close-x" title="Sluta bevaka" aria-label="Sluta bevaka">×</button>` :
+        `<div class="pos-pnl"><div class="v" data-f="pnl">–</div><div class="s" data-f="r">–</div></div>`}
+    </div>
+    ${watch ? "" : `
+    <div class="levels">
+      <div class="ltrack" data-f="track"></div>
+      <div class="lscale"><span>Stopp <b data-f="stop"></b></span><span>Mål <b data-f="target"></b></span></div>
+    </div>
+    <div class="meta">
+      <div><span>Inköp</span><b data-f="entry"></b></div>
+      <div><span>Nu</span><b data-f="price"></b></div>
+      <div><span>Värde</span><b data-f="value"></b></div>
+      <div><span>Öppnad</span><b data-f="opened"></b></div>
+      <div><span>Tidsstopp om</span><b data-f="left"></b></div>
+    </div>`}
+    <div class="view-bar">
+      <div class="seg" role="group" aria-label="Diagramvy">
+        <button data-view="tv">TradingView</button>
+        <button data-view="bot">Botens vy</button>
+      </div>
+      <span class="view-note" data-f="note"></span>
+    </div>
+    <div class="pos-chart"><div data-f="chart"></div></div>`;
+  $("live-grid").append(el);
+  const c = { el, symbol: it.symbol, kind: it.kind, view: s.mode === "sim" ? "bot" : "tv", chart: null, series: null, lines: [], lastLevels: "", item: it };
+  el.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => { c.view = b.dataset.view; mountView(c, S || s); });
+  const x = el.querySelector(".close-x"); if (x) x.onclick = () => { watchSym = null; S && render(S); };
+  live.set(it.symbol, c);
+  mountView(c, s);
+  return c;
+}
+
+function mountView(c, s) {
+  c.el.querySelectorAll("[data-view]").forEach((b) => b.setAttribute("aria-pressed", b.dataset.view === c.view));
+  const host = c.el.querySelector('[data-f="chart"]');
+  if (c.chart) { c.chart.remove(); c.chart = c.series = null; c.lines = []; c.lastLevels = ""; }
+  host.innerHTML = ""; host.className = "";
+  const note = c.el.querySelector('[data-f="note"]');
+  if (c.view === "tv") {
+    note.textContent = s.mode === "sim" ? "Verkliga marknadspriser – inte simuleringens" : "Livepris från TradingView · 1 min";
+    const id = "tv-" + Math.random().toString(36).slice(2);
+    host.innerHTML = `<div id="${id}" style="position:absolute;inset:0"></div>`;
+    loadTradingView().then(() => {
+      if (!document.getElementById(id)) return;
+      new TradingView.widget({
+        container_id: id, autosize: true, symbol: tvSymbol(c.symbol, s.asset_class), interval: "1",
+        timezone: "Europe/Stockholm", theme: isDark() ? "dark" : "light", style: "1", locale: "sv_SE",
+        hide_side_toolbar: true, allow_symbol_change: false, save_image: false, withdateranges: false,
+        backgroundColor: css("--surface"), gridColor: css("--grid"),
+      });
+    }).catch(() => {
+      if (!document.getElementById(id)) return;
+      host.className = "fallback";
+      host.innerHTML = `<div>Kunde inte ladda TradingView – kontrollera internetanslutningen.<br>Välj <b>Botens vy</b> så länge.</div>`;
+    });
+  } else {
+    note.textContent = s.mode === "sim" ? "Simuleringens priser · inköp, stopp och mål inritade" : "Alpaca-data · inköp, stopp och mål inritade";
+    if (!window.LightweightCharts) { host.className = "fallback"; host.textContent = "Diagrambiblioteket kunde inte laddas."; return; }
+    c.chart = LightweightCharts.createChart(host, { autoSize: true, ...chartTheme() });
+    c.series = c.chart.addCandlestickSeries({
+      upColor: css("--gain"), downColor: css("--loss"), wickUpColor: css("--gain"), wickDownColor: css("--loss"), borderVisible: false,
+      priceFormat: { type: "price", precision: 4, minMove: 0.0001 },
+    });
+    c.loadedAt = 0;
+    loadBars(c);
+  }
+}
+
+function chartTheme() {
+  return {
+    layout: { background: { type: "solid", color: css("--surface") }, textColor: css("--muted"), fontFamily: css("--font"), fontSize: 11 },
+    grid: { vertLines: { color: css("--grid") }, horzLines: { color: css("--grid") } },
+    rightPriceScale: { borderColor: css("--axis") },
+    timeScale: { borderColor: css("--axis"), timeVisible: true, secondsVisible: false, rightOffset: 4 },
+    crosshair: { mode: 0 },
+    localization: { locale: "sv-SE" },
+  };
+}
+
+function restyleLive() {
+  for (const c of live.values()) {
+    if (c.view === "tv") { if (S) mountView(c, S); continue; }
+    if (!c.chart) continue;
+    c.chart.applyOptions(chartTheme());
+    c.series.applyOptions({ upColor: css("--gain"), downColor: css("--loss"), wickUpColor: css("--gain"), wickDownColor: css("--loss") });
+    c.lastLevels = ""; drawLevels(c);
+  }
+}
+
+async function loadBars(c) {
+  if (!c.series || c.loading) return;
+  c.loading = true;
+  try {
+    const r = await api("/api/bars?symbol=" + encodeURIComponent(c.symbol));
+    if (!c.series) return;
+    const shift = TZ_SHIFT();
+    c.bars = r.bars.map((b) => ({ time: Math.floor(new Date(b.t).getTime() / 1000) + shift, open: b.o, high: b.h, low: b.l, close: b.c }));
+    c.series.setData(c.bars);
+    const last = c.bars.length ? c.bars[c.bars.length - 1].close : 0;
+    const prec = last >= 100 ? 2 : last >= 1 ? 3 : 5;
+    if (prec !== c.prec) { c.prec = prec; c.series.applyOptions({ priceFormat: { type: "price", precision: prec, minMove: Math.pow(10, -prec) } }); }
+    drawLevels(c);
+  } catch (e) {
+    c.el.querySelector('[data-f="note"]').textContent = e.message;
+  } finally { c.loading = false; c.loadedAt = Date.now(); }
+}
+
+function drawLevels(c) {
+  const p = c.item;
+  if (!c.series || c.kind !== "pos") return;
+  const key = [p.entry, p.stop, p.target, isDark()].join("|");
+  if (key !== c.lastLevels) {
+    c.lines.forEach((l) => c.series.removePriceLine(l));
+    const L = LightweightCharts.LineStyle;
+    const breakEven = Math.abs(p.stop - p.entry) <= p.entry * 1e-6;
+    c.lines = [
+      c.series.createPriceLine({ price: p.target, color: css("--good"), lineWidth: 1, lineStyle: L.Dashed, axisLabelVisible: true, title: "Mål" }),
+      c.series.createPriceLine({ price: p.entry, color: css("--ink-2"), lineWidth: 1, lineStyle: L.Solid, axisLabelVisible: !breakEven, title: breakEven ? "" : "Inköp" }),
+      c.series.createPriceLine({ price: p.stop, color: css("--critical"), lineWidth: 1, lineStyle: L.Dashed, axisLabelVisible: true, title: breakEven ? "Stopp = inköp" : "Stopp" }),
+    ];
+    c.lastLevels = key;
+  }
+  if (c.bars && c.bars.length) {
+    const t = Math.floor(new Date(p.opened_at).getTime() / 1000) + TZ_SHIFT();
+    let bar = c.bars[0];
+    for (const b of c.bars) { if (b.time <= t) bar = b; else break; }
+    c.series.setMarkers([{ time: bar.time, position: "belowBar", color: css("--accent"), shape: "arrowUp", text: "Köp" }]);
+  }
+}
+
+function updateCard(c, it, s) {
+  c.item = it;
+  if (it.kind !== "pos") { c.el.querySelector('[data-f="why"]').textContent = "Följer marknaden – ingen position"; return; }
+  const f = (k) => c.el.querySelector(`[data-f="${k}"]`);
+  const R = it.entry - it.initial_stop;
+  const rMult = R > 0 ? (it.price - it.entry) / R : 0;
+  const posPct = (it.price / it.entry - 1) * 100;
+  f("qty").textContent = qtyFmt(it.qty) + " st";
+  f("why").textContent = (it.reasons || []).slice(0, 3).join(" · ");
+  const pnl = f("pnl"); pnl.textContent = signed(it.pnl); pnl.className = "v " + (it.pnl >= 0 ? "pos" : "neg");
+  f("r").textContent = `${posPct >= 0 ? "+" : "−"}${nf2.format(Math.abs(posPct))} % · ${rMult >= 0 ? "+" : "−"}${nf2.format(Math.abs(rMult))} R`;
+  f("stop").textContent = price(it.stop); f("target").textContent = price(it.target);
+  f("entry").textContent = price(it.entry); f("price").textContent = price(it.price);
+  f("value").textContent = money(it.qty * it.price);
+  f("opened").textContent = hm(it.opened_at);
+  const now = s.mode === "sim" && s.sim_time ? new Date(s.sim_time).getTime() : Date.now();
+  const leftMin = Math.max(0, s.max_hold_minutes - (now - new Date(it.opened_at).getTime()) / 60000);
+  f("left").textContent = `${Math.floor(leftMin)} min`;
+  // Spår: stopp (vänster) -> mål (höger), med inköp och nuvarande pris
+  const span = it.target - it.stop || 1;
+  const at = (v) => Math.max(0, Math.min(100, (v - it.stop) / span * 100));
+  const e = at(it.entry), n = at(it.price);
+  const col = it.price >= it.entry ? "var(--gain)" : "var(--loss)";
+  f("track").innerHTML = `<i class="fill" style="left:${Math.min(e, n)}%;width:${Math.abs(n - e)}%;background:${col}"></i>
+    <i class="tick" style="left:${e}%"></i><span class="flag" style="left:${e}%;transform:translateX(${e < 8 ? "0" : e > 92 ? "-100%" : "-50%"})">${it.stop >= it.entry ? "Inköp = stopp" : "Inköp"}</span>
+    <i class="now" style="left:${n}%;background:${col}" title="Nu ${price(it.price)}"></i>`;
+  drawLevels(c);
+}
+
+function syncLive(s) {
+  const items = s.positions.map((p) => ({ ...p, kind: "pos" }));
+  if (watchSym && !items.some((i) => i.symbol === watchSym)) items.push({ symbol: watchSym, kind: "watch" });
+  for (const [k, c] of live) {
+    const it = items.find((i) => i.symbol === k);
+    if (!it || it.kind !== c.kind) { if (c.chart) c.chart.remove(); c.el.remove(); live.delete(k); }
+  }
+  items.forEach((it) => updateCard(live.get(it.symbol) || createCard(it, s), it, s));
+  $("live-empty").hidden = items.length > 0;
+  $("live-dot").hidden = !s.positions.length;
+  $("live-sub").textContent = s.positions.length ? `${s.positions.length} öppna · uppdateras automatiskt` : "Följ varje öppen position i realtid";
+  const chips = s.watchlist.map((w) => `<button class="chip" data-sym="${esc(w)}">${esc(w)}</button>`).join("");
+  if ($("watch-chips").dataset.k !== chips) {
+    $("watch-chips").innerHTML = chips; $("watch-chips").dataset.k = chips;
+    $("watch-chips").querySelectorAll(".chip").forEach((b) => b.onclick = () => { watchSym = b.dataset.sym; render(S); });
+  }
+}
+
+// Uppdatera ljusstakarna i "Botens vy" regelbundet
+setInterval(() => {
+  const every = S && S.mode === "sim" ? 1000 : 5000;
+  for (const c of live.values()) if (c.view === "bot" && Date.now() - (c.loadedAt || 0) >= every) loadBars(c);
+}, 1000);
 
 /* ---------- loop ---------- */
 async function refresh() {

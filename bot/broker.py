@@ -132,10 +132,13 @@ class SimBroker:
         self.minute = 0
         self.burst_left: dict[str, int] = {}
         self.burst_dir: dict[str, int] = {}
+        # Simulerad klocka: varje tick = en minut. Historiken backdateras 80 minuter.
+        self.now = datetime.now(timezone.utc).replace(second=0, microsecond=0)
         for s in symbols:
             self.series[s] = []
             price = self.rng.uniform(20, 300)
-            for _ in range(80):
+            for k in range(80, 0, -1):
+                self._t = self.now - timedelta(minutes=k)
                 price = self._step(s, price)
 
     def _step(self, symbol: str, price: float) -> float:
@@ -158,11 +161,13 @@ class SimBroker:
         h = max(o, c) * (1 + abs(self.rng.gauss(0, wick)))
         l = min(o, c) * (1 - abs(self.rng.gauss(0, wick)))
         v = self.rng.uniform(800, 1200) * (self.rng.uniform(2.5, 4.5) if burst else 1)
-        self.series[symbol].append(Bar(str(self.minute), o, h, l, c, v))
+        self.series[symbol].append(Bar(self._t.isoformat(), o, h, l, c, v))
         return c
 
     def tick(self) -> None:
         self.minute += 1
+        self.now += timedelta(minutes=1)
+        self._t = self.now
         for s, bars in self.series.items():
             self._step(s, bars[-1].c)
 
@@ -173,11 +178,11 @@ class SimBroker:
         raise KeyError(symbol)
 
     def shock(self, pct: float) -> None:
-        """Simulera en krasch: flytta alla priser pct procent."""
-        for s, bars in self.series.items():
+        """Simulera en krasch: sänk alla priser pct procent i senaste baren."""
+        for bars in self.series.values():
             b = bars[-1]
             c = b.c * (1 + pct / 100)
-            bars.append(Bar(b.t + "s", b.c, max(b.c, c), min(b.c, c), c, b.v))
+            bars[-1] = Bar(b.t, b.o, max(b.h, c), min(b.l, c), c, b.v * 5)
 
     def account(self) -> dict:
         equity = self.cash + sum(p["qty"] * self.price(s) for s, p in self.pos.items())
