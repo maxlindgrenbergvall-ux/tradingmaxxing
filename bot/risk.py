@@ -15,9 +15,42 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-from zoneinfo import ZoneInfo
+from datetime import tzinfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-ET = ZoneInfo("America/New_York")
+
+class _USEastern(tzinfo):
+    """Reserv om tidszonsdatabasen saknas (vanligt på Windows utan paketet tzdata).
+    Amerikansk sommartid: andra söndagen i mars 02:00 till första söndagen i november 02:00."""
+
+    @staticmethod
+    def _sunday(year: int, month: int, nth: int) -> datetime:
+        d = datetime(year, month, 1)
+        d += timedelta(days=(6 - d.weekday()) % 7 + 7 * (nth - 1))
+        return d.replace(hour=2)
+
+    def utcoffset(self, dt):
+        return timedelta(hours=-5) + self.dst(dt)
+
+    def dst(self, dt):
+        naive = dt.replace(tzinfo=None)
+        start, end = self._sunday(dt.year, 3, 2), self._sunday(dt.year, 11, 1)
+        return timedelta(hours=1) if start <= naive < end else timedelta(0)
+
+    def tzname(self, dt):
+        return "EDT" if self.dst(dt) else "EST"
+
+    def fromutc(self, dt):
+        utc = dt.replace(tzinfo=None)
+        start = self._sunday(utc.year, 3, 2) + timedelta(hours=5)   # 02:00 EST = 07:00 UTC
+        end = self._sunday(utc.year, 11, 1) + timedelta(hours=4)    # 02:00 EDT = 06:00 UTC
+        return dt + timedelta(hours=-4 if start <= utc < end else -5)
+
+
+try:
+    ET: tzinfo = ZoneInfo("America/New_York")
+except ZoneInfoNotFoundError:
+    ET = _USEastern()
 LIVE_ENV_FLAG = "BOT_ALLOW_LIVE"
 
 
