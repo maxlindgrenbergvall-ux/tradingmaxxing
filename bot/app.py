@@ -19,6 +19,7 @@ from .broker import AlpacaBroker, SimBroker, norm
 from .config import DEFAULT_PATH, apply_profile, load_config, profiles, symbols
 from .engine import Engine
 from .risk import RiskManager, utcnow
+from .backtest import BacktestRunner
 from .updater import RESTART_CODE, Updater
 
 ROOT = DEFAULT_PATH.parent
@@ -68,6 +69,7 @@ class Controller:
         self.engine: Engine | None = None
         self.mode = "paper"
         self.updater = Updater(ROOT, self.base_cfg, self.state_root)
+        self.backtests = BacktestRunner(self.base_cfg, self.state_root)
         self.restart_event = threading.Event()
         self.error: str | None = None
         self.sim_clock: datetime | None = None
@@ -413,6 +415,18 @@ def make_handler(ctrl: Controller):
         def do_GET(self):
             if self.path == "/api/status":
                 return self._json(200, {**ctrl.status(), "update": ctrl.updater.info()})
+            if self.path == "/api/backtest/status":
+                return self._json(200, ctrl.backtests.status())
+            if self.path == "/api/backtest/history":
+                return self._json(200, ctrl.backtests.history())
+            if self.path.startswith("/api/backtest/result"):
+                from urllib.parse import parse_qs, urlparse
+
+                try:
+                    rid = parse_qs(urlparse(self.path).query).get("id", [""])[0]
+                    return self._json(200, ctrl.backtests.get(rid))
+                except Exception as e:
+                    return self._json(400, {"error": str(e)})
             if self.path.startswith("/api/bars"):
                 from urllib.parse import parse_qs, urlparse
 
@@ -458,6 +472,12 @@ def make_handler(ctrl: Controller):
                 elif self.path == "/api/update/token":
                     ctrl.updater.set_token(body.get("token", ""))
                     out = ctrl.updater.check()
+                elif self.path == "/api/backtest/start":
+                    out = ctrl.backtests.start(
+                        days=float(body.get("days", 7)), profiles=list(body.get("profiles") or []),
+                        leverage=float(body.get("leverage", 1)), capital=float(body.get("capital", 100_000)),
+                        spread_mode=body.get("spread_mode", "live"), fixed_spread=float(body.get("fixed_spread", 0.1)),
+                        fee_pct=None if body.get("fee_pct") is None else float(body["fee_pct"]))
                 elif self.path == "/api/leverage":
                     ctrl.set_leverage(body.get("leverage", 1))
                     out = {"ok": True}

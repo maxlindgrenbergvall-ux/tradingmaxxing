@@ -31,6 +31,8 @@ Byggd på idéerna i [tradermonty/claude-trading-skills](https://github.com/trad
 
 **Hävstång (bara simulering):** välj 1×, 2×, 5×, 10× eller 20× i menyraden när du kör Simulering. Varje position blir då marginal × hävstång, och om kontovärdet inte längre räcker som marginal likvideras alla positioner som på en riktig börs. Alpaca har ingen hävstång på krypto, så demokontot kör alltid 1×. Obs: hävstång gör inte målen lättare att nå. Prisrörelsen som krävs är densamma, men vinst, förlust, spread och avgifter blir lika många gånger större.
 
+**Backtest på riktig data:** knappen **Backtest** kör boten över Alpacas historiska minutdata för kryptona (1–30 dagar), med exakt samma regler som live: signaler, stopp, mål, spread, avgifter, nödbroms, dagsgräns och hävstång. Välj flera tempon för att jämföra dem. Historiken sparas i `state/cache` och resultaten i `state/backtests`. Spreaden uppskattas från dagens bid/ask, och avgiften väljs i formuläret (0,25 / 0,15 / 0 %).
+
 **Signalradar:** visar varje symbol vid senaste skanningen: rörelse, volym, range, stängning, volatilitet och datans ålder jämfört med kraven, hur många villkor som är uppfyllda och exakt vad som saknas för ett köp. Loggen skriver en sammanfattning varje minut.
 
 **Live-positioner:** varje öppen position får ett eget kort med resultat, R-multipel, ett spår från stopp till mål, tid kvar till tidsstoppet och ett live-diagram. Växla mellan **TradingView** (TradingViews officiella livediagram) och **Botens vy** (ljusstakar med inköp, stopp och mål inritade, byggt med TradingViews öppna bibliotek Lightweight Charts). Klicka på en rad under Öppna positioner för att hoppa till dess diagram. Utan öppna positioner kan du bevaka valfri symbol från bevakningslistan.

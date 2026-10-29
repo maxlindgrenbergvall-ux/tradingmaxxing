@@ -230,6 +230,11 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ---------- dialog ---------- */
 dialog { border: 1px solid var(--border); border-radius: 18px; background: var(--surface); color: var(--ink); padding: 0; width: min(480px, calc(100vw - 32px)); box-shadow: 0 24px 64px rgba(0,0,0,.3); }
+dialog.wide { width: min(1180px, calc(100vw - 32px)); max-height: calc(100vh - 40px); }
+.bt-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 14px 20px; }
+.bt-form label { display: block; font-size: 12.5px; font-weight: 600; color: var(--ink-2); margin-bottom: 6px; }
+.bt-form .seg { flex-wrap: wrap; }
+.bt-form input { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--axis); background: var(--page); width: 100%; max-width: 200px; }
 dialog::backdrop { background: rgba(0,0,0,.45); backdrop-filter: blur(2px); }
 .dlg { padding: 22px 24px; }
 .dlg h3 { margin: 0 0 6px; font-size: 18px; }
@@ -288,6 +293,10 @@ a { color: var(--accent); }
       <span id="toggle-text">Starta</span>
     </button>
     <button id="crash" class="btn danger" hidden title="Simulera en krasch för att testa nödbromsen">Krasch-test</button>
+    <button id="bt-open" class="btn" title="Testa strategin på riktig historisk data">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 3 3 5-6"/></svg>
+      Backtest
+    </button>
     <button id="upd-btn" class="btn primary" hidden title="En ny version finns">
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>
       Ny version
@@ -424,6 +433,30 @@ a { color: var(--accent); }
       <button class="btn" value="cancel" formnovalidate>Avbryt</button>
       <button class="btn primary" id="unlock-go" type="button">Lås upp</button>
     </div>
+  </form>
+</dialog>
+
+<dialog id="dlg-bt" class="wide">
+  <form class="dlg" method="dialog">
+    <div class="card-head" style="margin-bottom:4px"><h3 style="margin:0">Backtest på riktig data</h3><button class="close-x" value="cancel" formnovalidate aria-label="Stäng">×</button></div>
+    <p>Kör boten över Alpacas historiska minutdata för kryptona – samma signaler, stopp, mål, spread, avgifter, nödbroms, dagsgräns och hävstång som live. Boten ser bara data som fanns vid varje tidpunkt.</p>
+    <div class="bt-form">
+      <div><label>Period</label><div class="seg" id="bt-days"></div></div>
+      <div><label>Tempo (välj flera för att jämföra)</label><div class="seg" id="bt-prof"></div></div>
+      <div><label>Hävstång</label><div class="seg" id="bt-lev"></div></div>
+      <div><label>Avgift per order</label><div class="seg" id="bt-fee"></div></div>
+      <div><label>Spread</label><div class="seg" id="bt-spread"></div></div>
+      <div><label for="bt-cap">Startkapital ($)</label><input id="bt-cap" type="number" min="100" step="1000" value="100000"></div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:center;margin:14px 0 6px;flex-wrap:wrap">
+      <button class="btn primary" id="bt-run" type="button">Kör backtest</button>
+      <div id="bt-prog" hidden style="flex:1;min-width:220px"><div class="meter" style="margin:0 0 4px"><i id="bt-bar" style="width:0"></i></div><span class="sub" id="bt-stage"></span></div>
+    </div>
+    <div class="msg-box" id="bt-msg"></div>
+    <div id="bt-results"></div>
+    <h3 style="margin:22px 0 8px;font-size:15px">Tidigare körningar</h3>
+    <div class="tbl-wrap" id="bt-hist"></div>
+    <p class="sub" style="margin-top:14px">Spreaden uppskattas från Alpacas aktuella köp-/säljkurs och gäller hela perioden. Avgiften är en uppskattning – kontrollera vad ditt konto faktiskt betalar. Historiska resultat garanterar inget om framtiden.</p>
   </form>
 </dialog>
 
@@ -595,6 +628,151 @@ async function waitForRestart() {
     try { const r = await fetch("/api/status", { cache: "no-store" }); if (r.ok) { location.reload(); return; } } catch {}
     await new Promise((r) => setTimeout(r, 1500));
   }
+}
+
+/* ---------- backtest ---------- */
+const BT = { days: 7, profiles: ["normal", "hogfrekvens", "maxfrekvens"], leverage: 1, fee: 0.25, spread: "live", sel: null, rows: [], poll: null };
+const PROFILE_LABEL = (p) => (S && S.profiles && S.profiles[p]) || p;
+const EXIT_LABEL = { stop: "Stopp", target: "Mål", time_stop: "Tidsstopp", kill_switch: "Nödbroms" };
+
+function btSeg(id, opts, cur, onPick) {
+  $(id).innerHTML = opts.map(([v, l]) => `<button type="button" data-v="${esc(v)}" aria-pressed="${String(v) === String(cur)}">${esc(l)}</button>`).join("");
+  $(id).querySelectorAll("button").forEach((b) => b.onclick = () => { onPick(b.dataset.v); btForm(); });
+}
+function btForm() {
+  btSeg("bt-days", [[1, "1 dag"], [3, "3 dagar"], [7, "7 dagar"], [14, "14 dagar"], [30, "30 dagar"]], BT.days, (v) => BT.days = +v);
+  btSeg("bt-lev", [[1, "1×"], [2, "2×"], [5, "5×"], [10, "10×"], [20, "20×"]], BT.leverage, (v) => BT.leverage = +v);
+  btSeg("bt-fee", [[0.25, "0,25 %"], [0.15, "0,15 %"], [0, "0 %"]], BT.fee, (v) => BT.fee = +v);
+  btSeg("bt-spread", [["live", "Aktuell från Alpaca"], ["0.05", "0,05 %"], ["0.1", "0,1 %"], ["0.2", "0,2 %"]], BT.spread, (v) => BT.spread = v);
+  const profs = S ? Object.entries(S.profiles) : [["normal", "Normal"]];
+  $("bt-prof").innerHTML = profs.map(([k, l]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${BT.profiles.includes(k)}">${esc(l)}</button>`).join("");
+  $("bt-prof").querySelectorAll("button").forEach((b) => b.onclick = () => {
+    const k = b.dataset.v;
+    BT.profiles = BT.profiles.includes(k) ? BT.profiles.filter((x) => x !== k) : [...BT.profiles, k];
+    btForm();
+  });
+}
+
+$("bt-open").onclick = async () => { btForm(); $("dlg-bt").showModal(); await btHistory(); btStatus(); };
+$("bt-run").onclick = async () => {
+  const m = $("bt-msg"); m.className = "msg-box"; m.textContent = "";
+  try {
+    await api("/api/backtest/start", {
+      days: BT.days, profiles: BT.profiles, leverage: BT.leverage, capital: +$("bt-cap").value || 100000,
+      fee_pct: BT.fee, spread_mode: BT.spread === "live" ? "live" : "fixed", fixed_spread: BT.spread === "live" ? 0.1 : +BT.spread,
+    });
+    BT.rows = []; BT.sel = null; btRender();
+    btStatus();
+  } catch (e) { m.className = "msg-box err"; m.textContent = e.message; }
+};
+
+async function btStatus() {
+  clearTimeout(BT.poll);
+  let st;
+  try { st = await api("/api/backtest/status"); } catch { return; }
+  const running = st.status === "running";
+  $("bt-run").disabled = running;
+  $("bt-prog").hidden = !running && st.status !== "error";
+  $("bt-bar").style.width = Math.round((st.progress || 0) * 100) + "%";
+  $("bt-stage").textContent = st.status === "error" ? "" : st.stage || "";
+  const m = $("bt-msg");
+  if (st.status === "error") { m.className = "msg-box err"; m.textContent = "Backtesten misslyckades: " + st.error; $("bt-prog").hidden = true; }
+  if (running && $("dlg-bt").open) BT.poll = setTimeout(btStatus, 700);
+  if (st.status === "done" && st.result_ids && st.id !== BT.shownJob) {
+    BT.shownJob = st.id;
+    BT.rows = await Promise.all(st.result_ids.map((id) => api("/api/backtest/result?id=" + encodeURIComponent(id))));
+    BT.sel = BT.rows.find((r) => r.stats.trades > 0) || BT.rows[0];
+    btRender(); btHistory();
+  }
+}
+
+async function btHistory() {
+  let h = [];
+  try { h = await api("/api/backtest/history"); } catch { return; }
+  $("bt-hist").innerHTML = h.length ? `<table><thead><tr><th>Körd</th><th>Tempo</th><th class="num">Dagar</th><th class="num">Hävstång</th><th class="num">Avgift</th><th class="num">Avkastning</th><th class="num">Trades</th><th class="num">Max DD</th><th></th></tr></thead><tbody>${
+    h.map((r) => `<tr class="follow" data-id="${esc(r.id)}"><td>${timeFmt(r.created_at)}</td><td>${esc(PROFILE_LABEL(r.profile))}</td><td class="num">${r.days}</td><td class="num">${r.leverage}×</td><td class="num">${r.fee_pct == null ? "–" : nf2.format(r.fee_pct) + " %"}</td>
+      <td class="num ${r.stats.return_pct >= 0 ? "pos" : "neg"}">${r.stats.return_pct >= 0 ? "+" : "−"}${nf2.format(Math.abs(r.stats.return_pct))} %</td><td class="num">${r.stats.trades}</td><td class="num">${pct(r.stats.max_drawdown_pct)}</td>
+      <td>${r.halted ? `<span class="tag">Nödbroms</span>` : ""}${r.liquidations ? ` <span class="tag">Likviderad</span>` : ""}</td></tr>`).join("")
+  }</tbody></table>` : `<div class="empty" style="min-height:70px">Inga tidigare körningar.</div>`;
+  $("bt-hist").querySelectorAll("tr[data-id]").forEach((tr) => tr.onclick = async () => {
+    const r = await api("/api/backtest/result?id=" + encodeURIComponent(tr.dataset.id));
+    BT.rows = [r]; BT.sel = r; btRender();
+    $("bt-results").scrollIntoView({ behavior: "smooth", block: "start" });
+  });
+}
+
+function btRender() {
+  const el = $("bt-results");
+  if (!BT.rows.length) { el.innerHTML = ""; return; }
+  const sign = (v) => (v >= 0 ? "+" : "−") + nf2.format(Math.abs(v)) + " %";
+  const cmp = `<table><thead><tr><th>Tempo</th><th class="num">Avkastning</th><th class="num">Resultat</th><th class="num">Trades</th><th class="num">Per dag</th><th class="num">Vinst</th><th class="num">Profit factor</th><th class="num">Snitt/trade</th><th class="num">Max DD</th><th>Exits</th><th>Status</th></tr></thead><tbody>${
+    BT.rows.map((r, i) => { const s = r.stats; const ex = Object.entries(s.exit_reasons).map(([k, n]) => `${EXIT_LABEL[k] || k} ${n}`).join(" · ");
+      return `<tr class="follow" data-i="${i}" ${r === BT.sel ? 'style="background:var(--accent-wash)"' : ""}><td class="sym">${esc(PROFILE_LABEL(r.profile))} <span class="sub">${r.leverage}×</span></td>
+      <td class="num ${s.return_pct >= 0 ? "pos" : "neg"}">${sign(s.return_pct)}</td><td class="num ${s.pnl >= 0 ? "pos" : "neg"}">${signed(s.pnl)}</td>
+      <td class="num">${s.trades}</td><td class="num">${nf1.format(s.trades_per_day)}</td><td class="num">${s.win_rate == null ? "–" : pct(s.win_rate)}</td>
+      <td class="num">${s.profit_factor == null ? "–" : nf2.format(s.profit_factor)}</td><td class="num">${signed(s.expectancy)}</td><td class="num">${pct(s.max_drawdown_pct)}</td>
+      <td class="sub">${esc(ex) || "–"}</td><td>${r.halted ? `<span class="tag">Nödbroms</span>` : r.liquidations ? `<span class="tag">Likviderad</span>` : `<span class="sub">Klarade perioden</span>`}</td></tr>`; }).join("")
+  }</tbody></table>`;
+  const r = BT.sel, s = r.stats;
+  const spreads = Object.values(r.spreads);
+  const avgSpread = spreads.reduce((a, b) => a + b, 0) / (spreads.length || 1);
+  el.innerHTML = `
+    <div class="tbl-wrap">${cmp}</div>
+    <div class="card-head" style="margin-top:22px"><h2>${esc(PROFILE_LABEL(r.profile))} · ${r.leverage}× · ${timeFmt(r.start)} – ${timeFmt(r.end)}</h2>
+      <span class="sub">Avgift ${nf2.format(r.fee_pct)} % per order · snittspread ${nf2.format(avgSpread)} % · ${Object.values(r.bars).reduce((a, b) => a + b, 0).toLocaleString("sv-SE")} minutstaplar</span></div>
+    ${r.halted ? `<div class="banner critical" style="margin:0 0 12px">${ICON.alert}<div class="grow"><b>Nödbromsen löste ut ${timeFmt(r.halted_at)}</b><p>${esc(r.halt_reason)}</p></div></div>` : ""}
+    <div class="grid tiles" style="margin-top:0">
+      ${[["Slutvärde", money(s.final_equity), `Start ${money(r.capital)}`], ["Avkastning", sign(s.return_pct), signed(s.pnl)],
+         ["Trades", String(s.trades), `${nf1.format(s.trades_per_day)} per dag`], ["Vinstfrekvens", s.win_rate == null ? "–" : pct(s.win_rate), s.avg_win == null ? "" : `Snittvinst ${compactMoney(s.avg_win)}`],
+         ["Största drawdown", pct(s.max_drawdown_pct), s.avg_hold_min == null ? "" : `Snitt hålltid ${nf1.format(s.avg_hold_min)} min`]]
+        .map(([l, v, h]) => `<div class="card tile"><div class="label">${l}</div><div class="value">${v}</div><div class="hint">${h}</div></div>`).join("")}
+    </div>
+    <div class="card" style="margin-top:16px"><div class="card-head"><h2>Kontovärde under perioden</h2>
+      <div class="legend"><span><i class="sw line" style="background:var(--accent)"></i>Kontovärde</span><span><i class="sw dash" style="border-color:var(--muted)"></i>Start</span><span><i class="sw dash" style="border-color:var(--critical)"></i>Nödbroms</span></div></div>
+      <div class="chart" id="bt-chart"></div></div>
+    <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:16px">
+      <div class="card"><div class="card-head"><h2>Per symbol</h2></div><div class="tbl-wrap"><table><thead><tr><th>Symbol</th><th class="num">Trades</th><th class="num">Vinst</th><th class="num">Resultat</th><th class="num">Spread</th></tr></thead><tbody>${
+        r.per_symbol.map((a) => `<tr><td class="sym">${esc(a.symbol)}</td><td class="num">${a.trades}</td><td class="num">${pct(a.wins / a.trades * 100)}</td><td class="num ${a.pnl >= 0 ? "pos" : "neg"}">${signed(a.pnl)}</td><td class="num">${nf2.format(r.spreads[a.symbol] ?? 0)} %</td></tr>`).join("") ||
+        `<tr><td colspan="5" class="sub">Inga trades under perioden.</td></tr>`}</tbody></table></div></div>
+      <div class="card"><div class="card-head"><h2>Senaste trades</h2></div><div class="tbl-wrap" style="max-height:330px;overflow:auto"><table><thead><tr><th>Stängd</th><th>Symbol</th><th>Orsak</th><th class="num">Resultat</th></tr></thead><tbody>${
+        r.trades.slice(-100).reverse().map((t) => `<tr><td>${timeFmt(t.closed_at)}</td><td class="sym">${esc(t.symbol)}</td><td><span class="tag">${EXIT_LABEL[t.exit_reason] || esc(t.exit_reason)}</span></td><td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${signed(t.pnl)}</td></tr>`).join("") ||
+        `<tr><td colspan="4" class="sub">Inga trades.</td></tr>`}</tbody></table></div></div>
+    </div>`;
+  el.querySelectorAll("tr[data-i]").forEach((tr) => tr.onclick = () => { BT.sel = BT.rows[+tr.dataset.i]; btRender(); });
+  btChart($("bt-chart"), r.equity, r.capital, r.capital * (1 - (S ? S.kill_pct : 25) / 100));
+}
+
+function btChart(el, pts, start, kill) {
+  if (!pts || pts.length < 2) { el.innerHTML = `<div class="empty">För lite data för en kurva.</div>`; return; }
+  const W = el.clientWidth || 900, H = 260, m = { t: 12, r: 12, b: 26, l: 62 };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
+  const ts = pts.map((p) => new Date(p.t).getTime()), vals = pts.map((p) => p.v);
+  const t0 = ts[0], t1 = ts[ts.length - 1];
+  let lo = Math.min(...vals, start), hi = Math.max(...vals, start);
+  const showKill = kill >= lo - (hi - lo) * 0.6; if (showKill) lo = Math.min(lo, kill);
+  const pad = (hi - lo) * 0.08 || hi * 0.01 || 1; lo -= pad; hi += pad;
+  const x = (t) => m.l + (t1 === t0 ? 0 : (t - t0) / (t1 - t0)) * iw, y = (v) => m.t + (1 - (v - lo) / (hi - lo)) * ih;
+  let svg = `<svg viewBox="0 0 ${W} ${H}" height="${H}" role="img" aria-label="Kontovärde i backtesten">`;
+  niceTicks(lo, hi, 5).forEach((v) => { svg += `<line class="gridline" x1="${m.l}" x2="${W - m.r}" y1="${y(v)}" y2="${y(v)}"/><text class="tick" x="${m.l - 8}" y="${y(v) + 4}" text-anchor="end">${compactMoney(v)}</text>`; });
+  for (let i = 0; i <= 4; i++) { const t = t0 + (t1 - t0) * i / 4; svg += `<text class="tick" x="${x(t)}" y="${H - 6}" text-anchor="${i === 0 ? "start" : i === 4 ? "end" : "middle"}">${new Date(t).toLocaleDateString("sv-SE", { day: "numeric", month: "short" })} ${new Date(t).toLocaleTimeString("sv-SE", { hour: "2-digit", minute: "2-digit" })}</text>`; }
+  svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(start)}" y2="${y(start)}" stroke="var(--muted)" stroke-width="1.5" stroke-dasharray="4 4"/>`;
+  if (showKill) svg += `<line x1="${m.l}" x2="${W - m.r}" y1="${y(kill)}" y2="${y(kill)}" stroke="var(--critical)" stroke-width="1.5" stroke-dasharray="4 4"/>`;
+  const d = pts.map((p, i) => `${i ? "L" : "M"}${x(ts[i]).toFixed(1)},${y(p.v).toFixed(1)}`).join("");
+  svg += `<path d="${d}" fill="none" stroke="var(--accent)" stroke-width="2" stroke-linejoin="round"/>`;
+  svg += `<g id="btc-h" style="display:none"><line id="btc-x" y1="${m.t}" y2="${m.t + ih}" stroke="var(--axis)"/><circle id="btc-d" r="5" fill="var(--accent)" stroke="var(--surface)" stroke-width="2"/></g>`;
+  svg += `<rect id="btc-hit" x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent"/></svg><div class="tip" id="btc-tip"></div>`;
+  el.innerHTML = svg;
+  const xs = ts.map(x), tip = $("btc-tip");
+  $("btc-hit").addEventListener("pointermove", (ev) => {
+    const r = el.querySelector("svg").getBoundingClientRect(), px = (ev.clientX - r.left) * (W / r.width);
+    let i = 0, best = Infinity; xs.forEach((xv, k) => { const dd = Math.abs(xv - px); if (dd < best) { best = dd; i = k; } });
+    $("btc-h").style.display = ""; $("btc-x").setAttribute("x1", xs[i]); $("btc-x").setAttribute("x2", xs[i]);
+    $("btc-d").setAttribute("cx", xs[i]); $("btc-d").setAttribute("cy", y(vals[i]));
+    tip.innerHTML = `<span class="m">${timeFmt(pts[i].t)}</span><b>${money(vals[i])}</b><span class="${vals[i] >= start ? "pos" : "neg"}">${signed(vals[i] - start)}</span>`;
+    tip.style.opacity = 1; const sx = xs[i] * r.width / W, tw = tip.offsetWidth;
+    tip.style.left = Math.max(0, Math.min(r.width - tw, sx + 12 + tw > r.width ? sx - tw - 12 : sx + 12)) + "px"; tip.style.top = "0px";
+  });
+  $("btc-hit").addEventListener("pointerleave", () => { $("btc-h").style.display = "none"; tip.style.opacity = 0; });
 }
 
 /* ---------- render ---------- */

@@ -19,7 +19,9 @@ log = logging.getLogger("bot")
 
 
 class Engine:
-    def __init__(self, cfg: dict[str, Any], broker: Broker, risk: RiskManager):
+    def __init__(self, cfg: dict[str, Any], broker: Broker, risk: RiskManager, persist: bool = True,
+                 logger: logging.Logger | None = None):
+        self.log = logger or log
         self.cfg = cfg
         self.broker = broker
         self.risk = risk
@@ -30,6 +32,9 @@ class Engine:
         self.dir = risk.dir
         self.trades_path = self.dir / "open_trades.json"
         self.journal_path = self.dir / "journal.jsonl"
+        # persist=False används av backtesten: allt hålls i minnet, inget skrivs till disk.
+        self.persist = persist
+        self.journal_mem: list[dict] = []
         self._last_block = "OK"
         self.last_account: dict | None = None
         self.last_positions: dict[str, dict] = {}
@@ -46,11 +51,16 @@ class Engine:
         )
 
     def _save_trades(self) -> None:
+        if not self.persist:
+            return
         tmp = self.trades_path.with_suffix(".tmp")
         tmp.write_text(json.dumps(self.trades, indent=2))
         os.replace(tmp, self.trades_path)
 
     def _journal(self, entry: dict) -> None:
+        if not self.persist:
+            self.journal_mem.append(entry)
+            return
         with open(self.journal_path, "a") as fh:
             fh.write(json.dumps(entry) + "\n")
 
@@ -59,7 +69,7 @@ class Engine:
         """En iteration. Returnerar False när boten ska stanna (nödbroms)."""
         now = now or utcnow()
         if self.risk.state.halted:
-            log.error("Boten är stoppad: %s", self.risk.state.halt_reason)
+            self.log.error("Boten är stoppad: %s", self.risk.state.halt_reason)
             return False
 
         acct = self.broker.account()
@@ -75,25 +85,25 @@ class Engine:
         ok, why = self.risk.can_open(acct["equity"], now)
         self.last_block_reason = why
         if why != self._last_block:
-            log.info("Nya trades: %s", "tillåtna" if ok else f"blockerade ({why})")
+            self.log.info("Nya trades: %s", "tillåtna" if ok else f"blockerade ({why})")
             self._last_block = why
         if not ok:
             return True
         if not self.broker.market_open():
-            log.debug("Marknaden stängd.")
+            self.log.debug("Marknaden stängd.")
             return True
         self._enter(acct, self.broker.positions(), now)
         self.last_positions = self.broker.positions()
         return True
 
     def _kill(self) -> None:
-        log.critical(self.risk.state.halt_reason)
+        self.log.critical(self.risk.state.halt_reason)
         if self.cfg["safety"].get("flatten_on_kill", True):
             try:
                 self.broker.flatten()
-                log.critical("Alla ordrar annullerade och positioner stängda.")
+                self.log.critical("Alla ordrar annullerade och positioner stängda.")
             except Exception:
-                log.exception("Kunde inte stänga positioner - STÄNG MANUELLT!")
+                self.log.exception("Kunde inte stänga positioner - STÄNG MANUELLT!")
         for sym, t in self.trades.items():
             px = self.last_positions.get(norm(sym), {}).get("current_price")
             entry = {**t, "symbol": sym, "closed_at": utcnow().isoformat(), "exit_reason": "kill_switch"}
@@ -110,7 +120,7 @@ class Engine:
         try:
             return self.broker.quotes(syms)
         except Exception as e:
-            log.warning("Kunde inte hämta bid/ask: %s", e)
+            self.log.warning("Kunde inte hämta bid/ask: %s", e)
             return {}
 
     def _manage_exits(self, positions: dict[str, dict], now: datetime) -> None:
@@ -119,7 +129,7 @@ class Engine:
             t = self.trades[sym]
             p = positions.get(norm(sym))
             if p is None:
-                log.warning("%s: position saknas (stängd utanför boten?) - slutar följa den.", sym)
+                self.log.warning("%s: position saknas (stängd utanför boten?) - slutar följa den.", sym)
                 del self.trades[sym]
                 continue
             if not t.get("fill_confirmed"):
@@ -147,7 +157,7 @@ class Engine:
             if reason:
                 self.broker.close(sym)
                 pnl = (price - t["entry"]) * t["qty"]
-                log.info("EXIT %s %s @ %.4f  P&L %.2f", sym, reason, price, pnl)
+                self.log.info("EXIT %s %s @ %.4f  P&L %.2f", sym, reason, price, pnl)
                 self.risk.record_trade(pnl, now)
                 self._journal({**t, "symbol": sym, "exit_price": price, "exit_reason": reason,
                                "pnl": round(pnl, 2), "closed_at": now.isoformat()})
@@ -212,7 +222,7 @@ class Engine:
         for sig in signals[:free_slots]:
             entry, stop, target, why = self._costed(sig, quotes.get(sig.symbol))
             if why:
-                log.info("%s: hoppar över köp – %s", sig.symbol, why)
+                self.log.info("%s: hoppar över köp – %s", sig.symbol, why)
                 continue
             lev = float(self.z.get("leverage", 1.0))
             if lev > 1:
@@ -228,12 +238,12 @@ class Engine:
                     fractional=self.fractional,
                 )
             if qty <= 0 or qty * entry < 10:
-                log.warning("%s: signal men för liten position (%.6f st) – hoppar över.", sig.symbol, qty)
+                self.log.warning("%s: signal men för liten position (%.6f st) – hoppar över.", sig.symbol, qty)
                 continue
             try:
                 order_id = self.broker.buy(sig.symbol, qty)
             except Exception as e:
-                log.error("Köporder för %s nekades: %s", sig.symbol, e)
+                self.log.error("Köporder för %s nekades: %s", sig.symbol, e)
                 continue
             self.orders_sent += 1
             buying_power -= qty * entry
@@ -242,7 +252,7 @@ class Engine:
                 "initial_stop": stop, "target": target, "opened_at": now.isoformat(),
                 "score": sig.score, "reasons": list(sig.reasons), "fill_confirmed": False,
             }
-            log.info("ENTRY %s qty=%s @ ~%.4f stop %.4f target %.4f [%s]",
+            self.log.info("ENTRY %s qty=%s @ ~%.4f stop %.4f target %.4f [%s]",
                      sig.symbol, qty, entry, stop, target, ", ".join(sig.reasons))
         self._save_trades()
 
@@ -253,11 +263,11 @@ class Engine:
         self._last_summary = time.monotonic()
         scored = [r for r in rows if r.get("total") and not r["held"]]
         if not scored:
-            log.info("Skanning: väntar på data (%s)", ", ".join(f"{r['symbol']}: {r.get('note', '-')}" for r in rows[:3]))
+            self.log.info("Skanning: väntar på data (%s)", ", ".join(f"{r['symbol']}: {r.get('note', '-')}" for r in rows[:3]))
             return
         best = max(scored, key=lambda r: r["passed"])
         missing = [CHECK_LABELS[k] for k, ok in best["checks"].items() if not ok]
-        log.info("Skanning %d: %d symboler, %d signaler. Närmast: %s %d/%d villkor%s",
+        self.log.info("Skanning %d: %d symboler, %d signaler. Närmast: %s %d/%d villkor%s",
                  self.scans, len(rows), n_signals, best["symbol"], best["passed"], best["total"],
                  f" (saknas: {', '.join(missing)})" if missing else "")
 
@@ -267,7 +277,7 @@ class Engine:
         """Kör tills nödbromsen löser ut eller stop_event sätts.
         before_step/clock används av simulatorn för att driva fram tiden."""
         poll = float(poll if poll is not None else self.cfg["runtime"].get("poll_seconds", 30))
-        log.info("Startar. Läge=%s, tillgångar=%s, nödbroms vid equity <= %.2f",
+        self.log.info("Startar. Läge=%s, tillgångar=%s, nödbroms vid equity <= %.2f",
                  self.cfg["account"]["mode"], self.s["asset_class"], self.risk.kill_level)
         errors = 0
         while not (stop_event and stop_event.is_set()):
@@ -275,14 +285,14 @@ class Engine:
                 if before_step:
                     before_step()
                 if not self.step(clock() if clock else None):
-                    log.critical("Boten har stannat för manuell granskning. Se state/HALTED.")
+                    self.log.critical("Boten har stannat för manuell granskning. Se state/HALTED.")
                     return
                 errors = 0
             except KeyboardInterrupt:
                 raise
             except Exception:
                 errors += 1
-                log.exception("Fel i loopen (%d i rad)", errors)
+                self.log.exception("Fel i loopen (%d i rad)", errors)
                 if errors >= 10:
                     self.risk.halt("10 fel i rad - stoppar för granskning.")
                     return
@@ -290,4 +300,4 @@ class Engine:
                 stop_event.wait(poll)
             else:
                 time.sleep(poll)
-        log.info("Boten stoppad av användaren.")
+        self.log.info("Boten stoppad av användaren.")
