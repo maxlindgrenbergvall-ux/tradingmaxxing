@@ -108,7 +108,7 @@ class Engine:
             px = self.last_positions.get(norm(sym), {}).get("current_price")
             entry = {**t, "symbol": sym, "closed_at": utcnow().isoformat(), "exit_reason": "kill_switch"}
             if px is not None:
-                entry.update(exit_price=px, pnl=round((px - t["entry"]) * t["qty"], 2))
+                entry.update(exit_price=px, **self._trade_costs(t, px, px))
             self._journal(entry)
         self.trades = {}
         self._save_trades()
@@ -156,14 +156,27 @@ class Engine:
                 reason = "time_stop"
             if reason:
                 self.broker.close(sym)
-                pnl = (price - t["entry"]) * t["qty"]
-                self.log.info("EXIT %s %s @ %.4f  P&L %.2f", sym, reason, price, pnl)
-                self.risk.record_trade(pnl, now)
+                exit_mid = (q["bid"] + q["ask"]) / 2 if q else price
+                costs = self._trade_costs(t, price, exit_mid)
+                self.log.info("EXIT %s %s @ %.4f  P&L %.2f (avgifter %.2f, spread %.2f)",
+                              sym, reason, price, costs["pnl"], costs["fees"], costs["spread_cost"])
+                self.risk.record_trade(costs["pnl"], now)
                 self._journal({**t, "symbol": sym, "exit_price": price, "exit_reason": reason,
-                               "pnl": round(pnl, 2), "closed_at": now.isoformat()})
+                               **costs, "closed_at": now.isoformat()})
                 del self.trades[sym]
                 self.recent_exits[sym] = now
         self._save_trades()
+
+    def _trade_costs(self, t: dict, exit_price: float, exit_mid: float) -> dict:
+        """Nettoresultat efter avgifter, uppdelat i prisrörelse, spread och avgift."""
+        qty, entry = t["qty"], t["entry"]
+        fee = self.s.get("fee_pct", 0.25) / 100
+        entry_mid = t.get("entry_mid", entry)
+        fees = fee * qty * (entry + exit_price)
+        spread_cost = qty * (max(0.0, entry - entry_mid) + max(0.0, exit_mid - exit_price))
+        gross = (exit_price - entry) * qty
+        return {"pnl": round(gross - fees, 2), "gross_pnl": round(gross, 2), "fees": round(fees, 2),
+                "spread_cost": round(spread_cost, 2), "move_pnl": round((exit_mid - entry_mid) * qty, 2)}
 
     def _costed(self, sig, quote: dict | None):
         """Anpassar en signal efter verkliga kostnader. Returnerar (entry, stop, target, skäl)."""
@@ -186,6 +199,14 @@ class Engine:
             reward = max(stop_dist * sig.rr, edge)
         else:       # övriga strategier har eget mål (t.ex. SMA(5) eller 2R från strukturstopp)
             reward = max(sig.target - entry, edge, stop_dist * s.get("min_reward_risk", 1.0))
+        # Kostnadsfilter: målet måste gå att nå inom tradens maxtid. Priset rör sig typiskt
+        # ungefär ATR(1 min) x roten ur antalet minuter – ligger målet längre bort än så
+        # blir det mest tidsstopp, och då äter avgifterna upp kontot.
+        hold = max(1.0, float(s.get("max_hold_minutes", 30)))
+        reach = sig.atr * hold ** 0.5 * s.get("reach_mult", 1.0)
+        if sig.atr > 0 and reward > reach:
+            return None, None, None, (f"målet +{reward / entry * 100:.2f} % (för att täcka spread och avgift) är för långt "
+                                      f"bort – priset rör sig normalt ~{reach / entry * 100:.2f} % på {hold:.0f} min")
         return entry, entry - stop_dist, entry + reward, None
 
     def _enter(self, acct: dict, positions: dict[str, dict], now: datetime) -> None:
@@ -226,6 +247,11 @@ class Engine:
                 d = strategies.run(name, sym, sb, self.s)
                 if d.get("checks"):
                     d["checks"] = {**d["checks"], **common}
+                    if d.get("signal") and q and all(d["checks"].values()):
+                        why = self._costed(d["signal"], q)[3]
+                        d["checks"]["costs_ok"] = why is None
+                        if why:
+                            d["cost_note"] = why
                     d["passed"], d["total"] = sum(d["checks"].values()), len(d["checks"])
                     if not all(d["checks"].values()):
                         d["signal"] = None
@@ -239,7 +265,7 @@ class Engine:
             rows.append({
                 "symbol": sym, "held": held_sym, "ready": bool(ready), "strategy": best["strategy"],
                 "checks": best.get("checks", {}), "metrics": best.get("metrics", {}), "note": best.get("note"),
-                "passed": best.get("passed"), "total": best.get("total"),
+                "passed": best.get("passed"), "total": best.get("total"), "cost_note": best.get("cost_note"),
                 "others": [{"strategy": d["strategy"], "passed": d.get("passed"), "total": d.get("total"),
                             "ready": bool(d.get("signal")), "note": d.get("note")} for d in results],
             })
@@ -252,7 +278,7 @@ class Engine:
         for sig in signals[:free_slots]:
             entry, stop, target, why = self._costed(sig, quotes.get(sig.symbol))
             if why:
-                self.log.info("%s: hoppar över köp – %s", sig.symbol, why)
+                self.skipped["edge"] += 1
                 continue
             lev = float(self.z.get("leverage", 1.0))
             if lev > 1:
@@ -282,6 +308,8 @@ class Engine:
                 "initial_stop": stop, "target": target, "opened_at": now.isoformat(),
                 "score": sig.score, "reasons": list(sig.reasons), "fill_confirmed": False,
                 "strategy": sig.strategy,
+                "entry_mid": ((quotes[sig.symbol]["bid"] + quotes[sig.symbol]["ask"]) / 2
+                              if sig.symbol in quotes else entry),
             }
             self.log.info("ENTRY %s (%s) qty=%s @ ~%.4f stop %.4f target %.4f [%s]",
                      sig.symbol, strategies.STRATEGIES[sig.strategy]["label"], qty, entry, stop, target,

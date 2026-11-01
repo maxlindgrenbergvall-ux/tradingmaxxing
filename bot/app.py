@@ -410,6 +410,8 @@ class Controller:
             "avg_loss": sum(losses) / len(losses) if losses else None,
             "expectancy": sum(t["pnl"] for t in closed) / len(closed) if closed else None,
             "realized_pnl": sum(t["pnl"] for t in closed),
+            "realized_fees": sum(t.get("fees", 0.0) for t in closed),
+            "realized_spread": sum(t.get("spread_cost", 0.0) for t in closed),
             "losing_streak": st.losing_streak,
             "cooldown_until": st.cooldown_until,
             "demo_days": demo_day,

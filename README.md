@@ -42,6 +42,8 @@ Byggd på idéerna i [tradermonty/claude-trading-skills](https://github.com/trad
 
 Parametrarna finns under `[strategy.rsi2]`, `[strategy.vwap]`, `[strategy.ema]` och `[strategy.squeeze]` i `config.toml`. Reglerna är anpassade till minutdata, och krypto saknar börsöppning, så VWAP är rullande över 120 minuter. Jämför strategierna i **Backtest** med *Var för sig*.
 
+**Kostnader:** Alpaca tar 0,25 % per marknadsorder (taker) på lägsta nivån, alltså två gånger per trade, plus spread. Resultatet per trade visas nu *efter* avgifter, och backtesten visar "Vart pengarna tog vägen": prisrörelse − spread − avgifter = resultat. Ett kostnadsfilter (`reach_mult`) hoppar över trades vars mål, som måste täcka spread och avgifter, ligger längre bort än priset normalt hinner röra sig under tradens maxtid (ATR × √minuter). I Max frekvens är filtret avstängt.
+
 **Paus efter förlustserie:** av som standard. Den slås på i kortet *Strategier*. Nödbromsen (−25 %) och dagsgränsen (−8 %) gäller alltid.
 
 **Signalradar:** visar varje symbol vid senaste skanningen: rörelse, volym, range, stängning, volatilitet och datans ålder jämfört med kraven, hur många villkor som är uppfyllda och exakt vad som saknas för ett köp. Loggen skriver en sammanfattning varje minut.

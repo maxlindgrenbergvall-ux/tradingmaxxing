@@ -259,7 +259,8 @@ STRATEGIES: dict[str, dict[str, Any]] = {
     },
 }
 
-COMMON_CHECKS = {"fresh": "Färsk data", "spread_ok": "Låg spread", "not_recent": "Ej nyss såld"}
+COMMON_CHECKS = {"fresh": "Färsk data", "spread_ok": "Låg spread", "not_recent": "Ej nyss såld",
+                 "costs_ok": "Mål täcker kostnad"}
 
 
 def active(s: dict[str, Any]) -> list[str]:

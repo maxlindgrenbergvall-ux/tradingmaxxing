@@ -146,7 +146,7 @@ def test_stop_never_inside_spread(cfg, tmp_path):
     from bot.strategy import Signal
     risk = RiskManager(cfg["safety"], tmp_path)
     eng = Engine(cfg, SimBroker(symbols(cfg), seed=1), risk)
-    sig = Signal("X", entry=100.0, stop=99.95, target=100.1, atr=0.03, score=1, reasons=())
+    sig = Signal("X", entry=100.0, stop=99.95, target=100.1, atr=0.5, score=1, reasons=())
     entry, stop, target, why = eng._costed(sig, {"bid": 99.95, "ask": 100.05})
     assert why is None and entry == 100.05
     spread = 0.10
@@ -242,3 +242,25 @@ def test_all_strategies_handle_short_and_flat_data(cfg):
     for name in strategies.STRATEGIES:
         assert strategies.run(name, "X", _bars_from([100.0] * 5), cfg["strategy"])["signal"] is None
         assert strategies.run(name, "X", _bars_from([100.0] * 260), cfg["strategy"])["signal"] is None
+
+
+
+def test_cost_filter_skips_unreachable_targets(cfg, tmp_path):
+    # Lugn marknad: ATR 0,03 % per minut räcker inte för att täcka 2 x 0,25 % avgift på 30 min.
+    from bot.strategy import Signal
+    eng = Engine(cfg, SimBroker(symbols(cfg), seed=1), RiskManager(cfg["safety"], tmp_path))
+    calm = Signal("X", entry=100.0, stop=99.7, target=100.6, atr=0.03, score=1, reasons=())
+    *_, why = eng._costed(calm, {"bid": 99.99, "ask": 100.01})
+    assert why and "för långt" in why
+    volatile = Signal("X", entry=100.0, stop=99.7, target=100.6, atr=0.4, score=1, reasons=())
+    assert eng._costed(volatile, {"bid": 99.99, "ask": 100.01})[3] is None
+
+
+def test_trade_pnl_is_net_of_fees(cfg, tmp_path):
+    eng = Engine(cfg, SimBroker(symbols(cfg), seed=1), RiskManager(cfg["safety"], tmp_path))
+    t = {"qty": 100.0, "entry": 100.05, "entry_mid": 100.0}
+    c = eng._trade_costs(t, exit_price=100.95, exit_mid=101.0)
+    fee = cfg["strategy"]["fee_pct"] / 100
+    assert c["fees"] == round(fee * 100 * (100.05 + 100.95), 2)
+    assert c["gross_pnl"] == 90.0 and c["pnl"] == round(90.0 - c["fees"], 2)
+    assert c["spread_cost"] == 10.0 and c["move_pnl"] == 100.0

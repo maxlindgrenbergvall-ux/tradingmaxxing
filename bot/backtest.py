@@ -292,7 +292,13 @@ def stats(closed: list[dict], equity: list[dict], capital: float, final: float, 
             holds.append((_ts(t["closed_at"]) - _ts(t["opened_at"])).total_seconds() / 60)
         except (KeyError, ValueError):
             pass
+    fees = sum(t.get("fees", 0.0) for t in closed)
+    spread_cost = sum(t.get("spread_cost", 0.0) for t in closed)
     return {
+        "total_fees": fees,
+        "total_spread_cost": spread_cost,
+        "move_pnl": sum(t.get("move_pnl", t["pnl"]) for t in closed),
+        "cost_per_trade": (fees + spread_cost) / len(closed) if closed else None,
         "return_pct": (final / capital - 1) * 100,
         "pnl": final - capital,
         "final_equity": final,
@@ -312,10 +318,11 @@ def stats(closed: list[dict], equity: list[dict], capital: float, final: float, 
 def per_strategy(closed: list[dict]) -> dict:
     out: dict[str, dict] = {}
     for t in closed:
-        a = out.setdefault(t.get("strategy", "momentum"), {"trades": 0, "wins": 0, "pnl": 0.0})
+        a = out.setdefault(t.get("strategy", "momentum"), {"trades": 0, "wins": 0, "pnl": 0.0, "fees": 0.0})
         a["trades"] += 1
         a["wins"] += t["pnl"] > 0
         a["pnl"] += t["pnl"]
+        a["fees"] += t.get("fees", 0.0) + t.get("spread_cost", 0.0)
     return out
 
 

@@ -50,6 +50,7 @@ fee_pct = 0.25                    # uppskattad avgift per order i % (Alpaca kryp
 min_edge_mult = 2.0               # målet måste vara minst 2 x (spread + avgifter) bort
 reentry_minutes = 5               # köp inte samma symbol igen direkt efter en exit
 min_reward_risk = 1.0             # strategier med eget mål: målet minst 1 x stoppavståndet
+reach_mult = 1.0                  # kostnadsfilter: målet får vara högst ATR x √(maxtid) x detta bort
 
 # Vilka strategier som är aktiva (väljs också i appen). Flera kan vara på samtidigt.
 # momentum = Momentum-utbrott, rsi2 = RSI(2)-återgång, vwap = VWAP-återtagning,
@@ -151,6 +152,7 @@ max_hold_minutes = 10
 max_spread_pct = 0.25
 min_stop_pct = 0.2
 reentry_minutes = 2
+reach_mult = 1000.0               # kostnadsfiltret avstängt: testläge för många trades (kostar avgifter!)
 
 [profiles.maxfrekvens.sizing]
 risk_per_trade_pct = 0.1          # små positioner: många trades men liten kostnad per trade

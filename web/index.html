@@ -207,6 +207,12 @@ td.no { color: var(--muted); }
 .radar-stats { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); }
 .radar-stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
 
+.cost-flow { display: flex; align-items: stretch; gap: 10px; flex-wrap: wrap; }
+.cost-flow > div { flex: 1; min-width: 150px; background: var(--surface-2); border-radius: 10px; padding: 10px 14px; display: grid; gap: 2px; }
+.cost-flow span { font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
+.cost-flow b { font-size: 20px; letter-spacing: -0.01em; }
+.cost-flow small { font-size: 11.5px; color: var(--muted); }
+.cost-flow > i { align-self: center; font-style: normal; font-size: 20px; color: var(--muted); }
 .strat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
 .strat { text-align: left; border: 1px solid var(--border); background: var(--surface-2); border-radius: 12px; padding: 12px 14px; cursor: pointer; display: grid; gap: 6px; transition: border-color .15s, background .15s; }
 .strat:hover:not(:disabled) { border-color: var(--accent); }
@@ -740,12 +746,12 @@ function btRender() {
   const el = $("bt-results");
   if (!BT.rows.length) { el.innerHTML = ""; return; }
   const sign = (v) => (v >= 0 ? "+" : "−") + nf2.format(Math.abs(v)) + " %";
-  const cmp = `<table><thead><tr><th>Tempo</th><th class="num">Avkastning</th><th class="num">Resultat</th><th class="num">Trades</th><th class="num">Per dag</th><th class="num">Vinst</th><th class="num">Profit factor</th><th class="num">Snitt/trade</th><th class="num">Max DD</th><th>Exits</th><th>Status</th></tr></thead><tbody>${
+  const cmp = `<table><thead><tr><th>Tempo</th><th class="num">Avkastning</th><th class="num">Resultat</th><th class="num">Trades</th><th class="num">Per dag</th><th class="num">Vinst</th><th class="num">Profit factor</th><th class="num">Snitt/trade</th><th class="num">Kostnad/trade</th><th class="num">Max DD</th><th>Exits</th><th>Status</th></tr></thead><tbody>${
     BT.rows.map((r, i) => { const s = r.stats; const ex = Object.entries(s.exit_reasons).map(([k, n]) => `${EXIT_LABEL[k] || k} ${n}`).join(" · ");
       return `<tr class="follow" data-i="${i}" ${r === BT.sel ? 'style="background:var(--accent-wash)"' : ""}><td class="sym">${esc(RUN_LABEL(r))} <span class="sub">${r.leverage}×</span></td>
       <td class="num ${s.return_pct >= 0 ? "pos" : "neg"}">${sign(s.return_pct)}</td><td class="num ${s.pnl >= 0 ? "pos" : "neg"}">${signed(s.pnl)}</td>
       <td class="num">${s.trades}</td><td class="num">${nf1.format(s.trades_per_day)}</td><td class="num">${s.win_rate == null ? "–" : pct(s.win_rate)}</td>
-      <td class="num">${s.profit_factor == null ? "–" : nf2.format(s.profit_factor)}</td><td class="num">${signed(s.expectancy)}</td><td class="num">${pct(s.max_drawdown_pct)}</td>
+      <td class="num">${s.profit_factor == null ? "–" : nf2.format(s.profit_factor)}</td><td class="num">${signed(s.expectancy)}</td><td class="num">${s.cost_per_trade == null ? "–" : "−" + money(s.cost_per_trade)}</td><td class="num">${pct(s.max_drawdown_pct)}</td>
       <td class="sub">${esc(ex) || "–"}</td><td>${r.halted ? `<span class="tag">Nödbroms</span>` : r.liquidations ? `<span class="tag">Likviderad</span>` : `<span class="sub">Klarade perioden</span>`}</td></tr>`; }).join("")
   }</tbody></table>`;
   const r = BT.sel, s = r.stats;
@@ -762,6 +768,16 @@ function btRender() {
          ["Största drawdown", pct(s.max_drawdown_pct), s.avg_hold_min == null ? "" : `Snitt hålltid ${nf1.format(s.avg_hold_min)} min`]]
         .map(([l, v, h]) => `<div class="card tile"><div class="label">${l}</div><div class="value">${v}</div><div class="hint">${h}</div></div>`).join("")}
     </div>
+    ${s.total_fees != null && s.trades ? `<div class="card" style="margin-top:16px"><div class="card-head"><h2>Vart pengarna tog vägen</h2><span class="sub">summerat över ${s.trades} stängda trades</span></div>
+      <div class="cost-flow">
+        <div><span>Prisrörelse</span><b class="${s.move_pnl >= 0 ? "pos" : "neg"}">${signed(s.move_pnl)}</b><small>vad marknaden gav, mätt i mittpris</small></div>
+        <i>−</i>
+        <div><span>Spread</span><b class="neg">${money(s.total_spread_cost)}</b><small>köp till ask, sälj till bid</small></div>
+        <i>−</i>
+        <div><span>Avgifter</span><b class="neg">${money(s.total_fees)}</b><small>${nf2.format(r.fee_pct)} % per order, två per trade</small></div>
+        <i>=</i>
+        <div><span>Resultat</span><b class="${s.move_pnl - s.total_spread_cost - s.total_fees >= 0 ? "pos" : "neg"}">${signed(s.move_pnl - s.total_spread_cost - s.total_fees)}</b><small>${s.move_pnl > 0 && s.total_fees + s.total_spread_cost > s.move_pnl ? "kostnaderna åt upp vinsten" : s.move_pnl <= 0 ? "strategin förlorade även före kostnader" : "strategin klarade kostnaderna"}</small></div>
+      </div></div>` : ""}
     <div class="card" style="margin-top:16px"><div class="card-head"><h2>Kontovärde under perioden</h2>
       <div class="legend"><span><i class="sw line" style="background:var(--accent)"></i>Kontovärde</span><span><i class="sw dash" style="border-color:var(--muted)"></i>Start</span><span><i class="sw dash" style="border-color:var(--critical)"></i>Nödbroms</span></div></div>
       <div class="chart" id="bt-chart"></div></div>
@@ -907,7 +923,7 @@ function render(s) {
   // tiles
   const tiles = [
     { label: "Resultat idag", value: signed(s.day_pnl), cls: s.day_pnl > 0 ? "pos" : s.day_pnl < 0 ? "neg" : "", hint: "Inkl. orealiserat" },
-    { label: "Realiserat resultat", value: signed(s.realized_pnl), cls: s.realized_pnl > 0 ? "pos" : s.realized_pnl < 0 ? "neg" : "", hint: `${s.trades} stängda trades` },
+    { label: "Realiserat resultat", value: signed(s.realized_pnl), cls: s.realized_pnl > 0 ? "pos" : s.realized_pnl < 0 ? "neg" : "", hint: s.realized_fees ? `Efter avgifter ${compactMoney(s.realized_fees)} · ${s.trades} trades` : `${s.trades} stängda trades` },
     { label: "Vinstfrekvens", value: s.win_rate == null ? "–" : pct(s.win_rate), hint: s.trades ? `${Math.round((s.win_rate || 0) * s.trades / 100)} vinster av ${s.trades}` : "Inga trades än" },
     { label: "Profit factor", value: s.profit_factor == null ? "–" : nf2.format(s.profit_factor), hint: "Bruttovinst / bruttoförlust · >1 är lönsamt" },
     { label: "Snitt per trade", value: signed(s.expectancy), cls: s.expectancy > 0 ? "pos" : s.expectancy < 0 ? "neg" : "", hint: "Förväntat värde" },
@@ -984,6 +1000,7 @@ function radar(s) {
       const status = r.held ? `<span class="tag held">Äger redan</span>`
         : r.ready ? `<span class="tag go">Köpsignal</span>`
         : r.note ? `<span class="sub">${esc(r.note)}</span>`
+        : r.cost_note ? `<span class="sub" title="${esc(r.cost_note)}">Signal, men ${esc(r.cost_note.split(" – ")[0].replace("målet", "målet"))} – för dyrt</span>`
         : `<span class="sub">Saknas: ${esc(missing.join(", "))}</span>`;
       const dots = r.total ? `<span class="dots">${Object.entries(c).map(([k, ok]) => `<i class="${ok ? "on" : ""}" title="${esc(L[k] || k)}"></i>`).join("")}</span>${r.passed}/${r.total}` : "–";
       const others = (r.others || []).map((o) => `${stratLabel(s, o.strategy)}: ${o.total ? o.passed + "/" + o.total : o.note || "–"}${o.ready ? " (köpsignal)" : ""}`).join("\n");
