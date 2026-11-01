@@ -33,6 +33,17 @@ Byggd på idéerna i [tradermonty/claude-trading-skills](https://github.com/trad
 
 **Backtest på riktig data:** knappen **Backtest** kör boten över Alpacas historiska minutdata för kryptona (1–30 dagar), med exakt samma regler som live: signaler, stopp, mål, spread, avgifter, nödbroms, dagsgräns och hävstång. Välj flera tempon för att jämföra dem. Historiken sparas i `state/cache` och resultaten i `state/backtests`. Spreaden uppskattas från dagens bid/ask, och avgiften väljs i formuläret (0,25 / 0,15 / 0 %).
 
+**Strategier:** välj en eller flera i kortet *Strategier* (när boten är stoppad). Den starkaste signalen per symbol vinner, och alla delar samma skydd (spread, avgifter, stopp, nödbroms):
+- *Momentum-utbrott*: snabba rörelser uppåt med hög volym (Stockbee momentum burst).
+- *RSI(2)-återgång*: Larry Connors. Köper kraftiga dippar (RSI(2) < 10) när priset ligger över SMA(200), med mål tillbaka vid SMA(5).
+- *VWAP-återtagning*: priset tar sig tillbaka över VWAP och EMA(9) med ökad volym efter att ha legat under.
+- *EMA-pullback*: EMA 9 > 21 > 50, rekyl till EMA(21) och vändning upp.
+- *Squeeze-utbrott*: TTM Squeeze. Bollinger har legat inuti Keltner, och priset stänger över övre bandet när det släpper.
+
+Parametrarna finns under `[strategy.rsi2]`, `[strategy.vwap]`, `[strategy.ema]` och `[strategy.squeeze]` i `config.toml`. Reglerna är anpassade till minutdata, och krypto saknar börsöppning, så VWAP är rullande över 120 minuter. Jämför strategierna i **Backtest** med *Var för sig*.
+
+**Paus efter förlustserie:** av som standard. Den slås på i kortet *Strategier*. Nödbromsen (−25 %) och dagsgränsen (−8 %) gäller alltid.
+
 **Signalradar:** visar varje symbol vid senaste skanningen: rörelse, volym, range, stängning, volatilitet och datans ålder jämfört med kraven, hur många villkor som är uppfyllda och exakt vad som saknas för ett köp. Loggen skriver en sammanfattning varje minut.
 
 **Live-positioner:** varje öppen position får ett eget kort med resultat, R-multipel, ett spår från stopp till mål, tid kvar till tidsstoppet och ett live-diagram. Växla mellan **TradingView** (TradingViews officiella livediagram) och **Botens vy** (ljusstakar med inköp, stopp och mål inritade, byggt med TradingViews öppna bibliotek Lightweight Charts). Klicka på en rad under Öppna positioner för att hoppa till dess diagram. Utan öppna positioner kan du bevaka valfri symbol från bevakningslistan.

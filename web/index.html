@@ -207,6 +207,17 @@ td.no { color: var(--muted); }
 .radar-stats { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12.5px; color: var(--ink-2); }
 .radar-stats b { color: var(--ink); font-variant-numeric: tabular-nums; }
 
+.strat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 10px; }
+.strat { text-align: left; border: 1px solid var(--border); background: var(--surface-2); border-radius: 12px; padding: 12px 14px; cursor: pointer; display: grid; gap: 6px; transition: border-color .15s, background .15s; }
+.strat:hover:not(:disabled) { border-color: var(--accent); }
+.strat.on { background: var(--accent-wash); border-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.strat:disabled { cursor: not-allowed; opacity: .75; }
+.strat-top { display: flex; align-items: center; gap: 8px; }
+.strat-box { width: 18px; height: 18px; border-radius: 5px; border: 1.5px solid var(--axis); display: grid; place-items: center; font-size: 12px; color: #fff; flex: none; }
+.strat.on .strat-box { background: var(--accent); border-color: var(--accent); }
+.strat-about { font-size: 12.5px; color: var(--ink-2); line-height: 1.4; }
+.strat-stats { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
 /* ---------- tables (css) ---------- */
 .tabs { display: flex; gap: 4px; overflow-x: auto; max-width: 100%; }
 .tabs button { white-space: nowrap; border: 0; background: transparent; padding: 6px 10px; border-radius: 8px; color: var(--ink-2); cursor: pointer; font-weight: 600; }
@@ -354,6 +365,17 @@ a { color: var(--accent); }
   <section class="grid tables">
     <div class="card">
       <div class="card-head">
+        <h2>Strategier</h2>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap"><span class="sub" title="Pausar nya köp en stund efter flera förluster i rad. Nödbromsen (−25 %) och dagsgränsen (−8 %) gäller alltid.">Paus efter förlustserie</span><div class="seg" id="cooldown"></div></div>
+      </div>
+      <div class="strat-grid" id="strat"></div>
+      <div class="sub" id="strat-note" style="margin-top:10px"></div>
+    </div>
+  </section>
+
+  <section class="grid tables">
+    <div class="card">
+      <div class="card-head">
         <h2>Signalradar – vad boten tittar på just nu</h2>
         <div class="radar-stats" id="radar-stats"></div>
       </div>
@@ -442,6 +464,8 @@ a { color: var(--accent); }
     <p>Kör boten över Alpacas historiska minutdata för kryptona – samma signaler, stopp, mål, spread, avgifter, nödbroms, dagsgräns och hävstång som live. Boten ser bara data som fanns vid varje tidpunkt.</p>
     <div class="bt-form">
       <div><label>Period</label><div class="seg" id="bt-days"></div></div>
+      <div style="grid-column:1/-1"><label>Strategier</label><div class="seg" id="bt-strat"></div></div>
+      <div><label>Kör strategierna</label><div class="seg" id="bt-sep"></div></div>
       <div><label>Tempo (välj flera för att jämföra)</label><div class="seg" id="bt-prof"></div></div>
       <div><label>Hävstång</label><div class="seg" id="bt-lev"></div></div>
       <div><label>Avgift per order</label><div class="seg" id="bt-fee"></div></div>
@@ -631,8 +655,9 @@ async function waitForRestart() {
 }
 
 /* ---------- backtest ---------- */
-const BT = { days: 7, profiles: ["normal", "hogfrekvens", "maxfrekvens"], leverage: 1, fee: 0.25, spread: "live", sel: null, rows: [], poll: null };
+const BT = { days: 7, profiles: ["hogfrekvens"], strategies: null, separate: true, leverage: 1, fee: 0.25, spread: "live", sel: null, rows: [], poll: null };
 const PROFILE_LABEL = (p) => (S && S.profiles && S.profiles[p]) || p;
+const RUN_LABEL = (r) => `${PROFILE_LABEL(r.profile)} · ${(r.strategies || ["momentum"]).map((k) => S ? stratLabel(S, k) : k).join(" + ")}`;
 const EXIT_LABEL = { stop: "Stopp", target: "Mål", time_stop: "Tidsstopp", kill_switch: "Nödbroms" };
 
 function btSeg(id, opts, cur, onPick) {
@@ -644,6 +669,15 @@ function btForm() {
   btSeg("bt-lev", [[1, "1×"], [2, "2×"], [5, "5×"], [10, "10×"], [20, "20×"]], BT.leverage, (v) => BT.leverage = +v);
   btSeg("bt-fee", [[0.25, "0,25 %"], [0.15, "0,15 %"], [0, "0 %"]], BT.fee, (v) => BT.fee = +v);
   btSeg("bt-spread", [["live", "Aktuell från Alpaca"], ["0.05", "0,05 %"], ["0.1", "0,1 %"], ["0.2", "0,2 %"]], BT.spread, (v) => BT.spread = v);
+  if (!BT.strategies) BT.strategies = S ? (S.strategy_catalog || []).map((c) => c.key) : ["momentum"];
+  const cat = S ? S.strategy_catalog || [] : [];
+  $("bt-strat").innerHTML = cat.map((c) => `<button type="button" data-v="${esc(c.key)}" aria-pressed="${BT.strategies.includes(c.key)}" title="${esc(c.about)}">${esc(c.label)}</button>`).join("");
+  $("bt-strat").querySelectorAll("button").forEach((b) => b.onclick = () => {
+    const k = b.dataset.v;
+    BT.strategies = BT.strategies.includes(k) ? BT.strategies.filter((x) => x !== k) : [...BT.strategies, k];
+    btForm();
+  });
+  btSeg("bt-sep", [["1", "Var för sig (jämför)"], ["0", "Tillsammans (som live)"]], BT.separate ? "1" : "0", (v) => BT.separate = v === "1");
   const profs = S ? Object.entries(S.profiles) : [["normal", "Normal"]];
   $("bt-prof").innerHTML = profs.map(([k, l]) => `<button type="button" data-v="${esc(k)}" aria-pressed="${BT.profiles.includes(k)}">${esc(l)}</button>`).join("");
   $("bt-prof").querySelectorAll("button").forEach((b) => b.onclick = () => {
@@ -660,6 +694,7 @@ $("bt-run").onclick = async () => {
     await api("/api/backtest/start", {
       days: BT.days, profiles: BT.profiles, leverage: BT.leverage, capital: +$("bt-cap").value || 100000,
       fee_pct: BT.fee, spread_mode: BT.spread === "live" ? "live" : "fixed", fixed_spread: BT.spread === "live" ? 0.1 : +BT.spread,
+      strategies: BT.strategies, separate: BT.separate,
     });
     BT.rows = []; BT.sel = null; btRender();
     btStatus();
@@ -689,8 +724,8 @@ async function btStatus() {
 async function btHistory() {
   let h = [];
   try { h = await api("/api/backtest/history"); } catch { return; }
-  $("bt-hist").innerHTML = h.length ? `<table><thead><tr><th>Körd</th><th>Tempo</th><th class="num">Dagar</th><th class="num">Hävstång</th><th class="num">Avgift</th><th class="num">Avkastning</th><th class="num">Trades</th><th class="num">Max DD</th><th></th></tr></thead><tbody>${
-    h.map((r) => `<tr class="follow" data-id="${esc(r.id)}"><td>${timeFmt(r.created_at)}</td><td>${esc(PROFILE_LABEL(r.profile))}</td><td class="num">${r.days}</td><td class="num">${r.leverage}×</td><td class="num">${r.fee_pct == null ? "–" : nf2.format(r.fee_pct) + " %"}</td>
+  $("bt-hist").innerHTML = h.length ? `<table><thead><tr><th>Körd</th><th>Tempo · strategi</th><th class="num">Dagar</th><th class="num">Hävstång</th><th class="num">Avgift</th><th class="num">Avkastning</th><th class="num">Trades</th><th class="num">Max DD</th><th></th></tr></thead><tbody>${
+    h.map((r) => `<tr class="follow" data-id="${esc(r.id)}"><td>${timeFmt(r.created_at)}</td><td>${esc(RUN_LABEL(r))}</td><td class="num">${r.days}</td><td class="num">${r.leverage}×</td><td class="num">${r.fee_pct == null ? "–" : nf2.format(r.fee_pct) + " %"}</td>
       <td class="num ${r.stats.return_pct >= 0 ? "pos" : "neg"}">${r.stats.return_pct >= 0 ? "+" : "−"}${nf2.format(Math.abs(r.stats.return_pct))} %</td><td class="num">${r.stats.trades}</td><td class="num">${pct(r.stats.max_drawdown_pct)}</td>
       <td>${r.halted ? `<span class="tag">Nödbroms</span>` : ""}${r.liquidations ? ` <span class="tag">Likviderad</span>` : ""}</td></tr>`).join("")
   }</tbody></table>` : `<div class="empty" style="min-height:70px">Inga tidigare körningar.</div>`;
@@ -707,7 +742,7 @@ function btRender() {
   const sign = (v) => (v >= 0 ? "+" : "−") + nf2.format(Math.abs(v)) + " %";
   const cmp = `<table><thead><tr><th>Tempo</th><th class="num">Avkastning</th><th class="num">Resultat</th><th class="num">Trades</th><th class="num">Per dag</th><th class="num">Vinst</th><th class="num">Profit factor</th><th class="num">Snitt/trade</th><th class="num">Max DD</th><th>Exits</th><th>Status</th></tr></thead><tbody>${
     BT.rows.map((r, i) => { const s = r.stats; const ex = Object.entries(s.exit_reasons).map(([k, n]) => `${EXIT_LABEL[k] || k} ${n}`).join(" · ");
-      return `<tr class="follow" data-i="${i}" ${r === BT.sel ? 'style="background:var(--accent-wash)"' : ""}><td class="sym">${esc(PROFILE_LABEL(r.profile))} <span class="sub">${r.leverage}×</span></td>
+      return `<tr class="follow" data-i="${i}" ${r === BT.sel ? 'style="background:var(--accent-wash)"' : ""}><td class="sym">${esc(RUN_LABEL(r))} <span class="sub">${r.leverage}×</span></td>
       <td class="num ${s.return_pct >= 0 ? "pos" : "neg"}">${sign(s.return_pct)}</td><td class="num ${s.pnl >= 0 ? "pos" : "neg"}">${signed(s.pnl)}</td>
       <td class="num">${s.trades}</td><td class="num">${nf1.format(s.trades_per_day)}</td><td class="num">${s.win_rate == null ? "–" : pct(s.win_rate)}</td>
       <td class="num">${s.profit_factor == null ? "–" : nf2.format(s.profit_factor)}</td><td class="num">${signed(s.expectancy)}</td><td class="num">${pct(s.max_drawdown_pct)}</td>
@@ -718,7 +753,7 @@ function btRender() {
   const avgSpread = spreads.reduce((a, b) => a + b, 0) / (spreads.length || 1);
   el.innerHTML = `
     <div class="tbl-wrap">${cmp}</div>
-    <div class="card-head" style="margin-top:22px"><h2>${esc(PROFILE_LABEL(r.profile))} · ${r.leverage}× · ${timeFmt(r.start)} – ${timeFmt(r.end)}</h2>
+    <div class="card-head" style="margin-top:22px"><h2>${esc(RUN_LABEL(r))} · ${r.leverage}× · ${timeFmt(r.start)} – ${timeFmt(r.end)}</h2>
       <span class="sub">Avgift ${nf2.format(r.fee_pct)} % per order · snittspread ${nf2.format(avgSpread)} % · ${Object.values(r.bars).reduce((a, b) => a + b, 0).toLocaleString("sv-SE")} minutstaplar</span></div>
     ${r.halted ? `<div class="banner critical" style="margin:0 0 12px">${ICON.alert}<div class="grow"><b>Nödbromsen löste ut ${timeFmt(r.halted_at)}</b><p>${esc(r.halt_reason)}</p></div></div>` : ""}
     <div class="grid tiles" style="margin-top:0">
@@ -730,12 +765,14 @@ function btRender() {
     <div class="card" style="margin-top:16px"><div class="card-head"><h2>Kontovärde under perioden</h2>
       <div class="legend"><span><i class="sw line" style="background:var(--accent)"></i>Kontovärde</span><span><i class="sw dash" style="border-color:var(--muted)"></i>Start</span><span><i class="sw dash" style="border-color:var(--critical)"></i>Nödbroms</span></div></div>
       <div class="chart" id="bt-chart"></div></div>
+    ${Object.keys(r.per_strategy || {}).length > 1 ? `<div class="card" style="margin-top:16px"><div class="card-head"><h2>Per strategi</h2></div><div class="tbl-wrap"><table><thead><tr><th>Strategi</th><th class="num">Trades</th><th class="num">Vinst</th><th class="num">Resultat</th></tr></thead><tbody>${
+      Object.entries(r.per_strategy).sort((a, b) => b[1].pnl - a[1].pnl).map(([k, a]) => `<tr><td class="sym">${esc(S ? stratLabel(S, k) : k)}</td><td class="num">${a.trades}</td><td class="num">${pct(a.wins / a.trades * 100)}</td><td class="num ${a.pnl >= 0 ? "pos" : "neg"}">${signed(a.pnl)}</td></tr>`).join("")}</tbody></table></div></div>` : ""}
     <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:16px">
       <div class="card"><div class="card-head"><h2>Per symbol</h2></div><div class="tbl-wrap"><table><thead><tr><th>Symbol</th><th class="num">Trades</th><th class="num">Vinst</th><th class="num">Resultat</th><th class="num">Spread</th></tr></thead><tbody>${
         r.per_symbol.map((a) => `<tr><td class="sym">${esc(a.symbol)}</td><td class="num">${a.trades}</td><td class="num">${pct(a.wins / a.trades * 100)}</td><td class="num ${a.pnl >= 0 ? "pos" : "neg"}">${signed(a.pnl)}</td><td class="num">${nf2.format(r.spreads[a.symbol] ?? 0)} %</td></tr>`).join("") ||
         `<tr><td colspan="5" class="sub">Inga trades under perioden.</td></tr>`}</tbody></table></div></div>
-      <div class="card"><div class="card-head"><h2>Senaste trades</h2></div><div class="tbl-wrap" style="max-height:330px;overflow:auto"><table><thead><tr><th>Stängd</th><th>Symbol</th><th>Orsak</th><th class="num">Resultat</th></tr></thead><tbody>${
-        r.trades.slice(-100).reverse().map((t) => `<tr><td>${timeFmt(t.closed_at)}</td><td class="sym">${esc(t.symbol)}</td><td><span class="tag">${EXIT_LABEL[t.exit_reason] || esc(t.exit_reason)}</span></td><td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${signed(t.pnl)}</td></tr>`).join("") ||
+      <div class="card"><div class="card-head"><h2>Senaste trades</h2></div><div class="tbl-wrap" style="max-height:330px;overflow:auto"><table><thead><tr><th>Stängd</th><th>Symbol</th><th>Strategi</th><th>Orsak</th><th class="num">Resultat</th></tr></thead><tbody>${
+        r.trades.slice(-100).reverse().map((t) => `<tr><td>${timeFmt(t.closed_at)}</td><td class="sym">${esc(t.symbol)}</td><td class="sub">${esc(S ? stratLabel(S, t.strategy || "momentum") : "")}</td><td><span class="tag">${EXIT_LABEL[t.exit_reason] || esc(t.exit_reason)}</span></td><td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${signed(t.pnl)}</td></tr>`).join("") ||
         `<tr><td colspan="4" class="sub">Inga trades.</td></tr>`}</tbody></table></div></div>
     </div>`;
   el.querySelectorAll("tr[data-i]").forEach((tr) => tr.onclick = () => { BT.sel = BT.rows[+tr.dataset.i]; btRender(); });
@@ -882,9 +919,8 @@ function render(s) {
   ];
   $("tiles").innerHTML = tiles.map((t) => `<div class="card tile"><div class="label">${t.label}</div><div class="value ${t.cls || ""}">${t.value}</div><div class="hint">${t.hint}</div></div>`).join("");
 
-  const why = s.block_reason && s.block_reason.startsWith("COOLDOWN") && s.cooldown_until
-    ? `paus efter förlustserie till ${hm(s.cooldown_until)}` : s.block_reason;
-  $("block-sub").textContent = s.running && why && why !== "OK" ? "Nya trades pausade: " + why : s.running ? "Söker efter momentum-utbrott…" : "";
+  const why = (s.block_reason || "").replace(/^COOLDOWN: /, "");
+  $("block-sub").textContent = s.running && why && why !== "OK" ? "Nya trades pausade: " + why : s.running ? "Söker efter köpsignaler…" : "";
 
   equityChart(s);
   pnlChart(s);
@@ -894,12 +930,37 @@ function render(s) {
   radar(s);
 }
 
+/* ---------- strategier ---------- */
+const stratLabel = (s, k) => ((s.strategy_catalog || []).find((x) => x.key === k) || { label: k }).label;
+function strategyCard(s) {
+  const key = JSON.stringify([s.strategies, s.running, s.cooldown, s.per_strategy, s.trades]);
+  if ($("strat").dataset.k === key) return;
+  $("strat").dataset.k = key;
+  const ps = s.per_strategy || {};
+  $("strat").innerHTML = (s.strategy_catalog || []).map((c) => {
+    const on = s.strategies.includes(c.key), st = ps[c.key];
+    const stats = st ? `${st.trades} trades · ${pct(st.wins / st.trades * 100)} vinst · <span class="${st.pnl >= 0 ? "pos" : "neg"}">${signed(st.pnl)}</span>` : "Inga trades än";
+    return `<button type="button" class="strat ${on ? "on" : ""}" data-k="${esc(c.key)}" ${s.running ? "disabled" : ""} aria-pressed="${on}">
+      <span class="strat-top"><span class="strat-box">${on ? "✓" : ""}</span><b>${esc(c.label)}</b></span>
+      <span class="strat-about">${esc(c.about)}</span><span class="strat-stats">${stats}</span></button>`;
+  }).join("");
+  $("strat").querySelectorAll(".strat").forEach((b) => b.onclick = async () => {
+    const k = b.dataset.k;
+    const next = s.strategies.includes(k) ? s.strategies.filter((x) => x !== k) : [...s.strategies, k];
+    try { await api("/api/strategies", { strategies: next }); refresh(); } catch (e) { toast(e.message); }
+  });
+  $("cooldown").innerHTML = [["0", "Av"], ["1", "På"]].map(([v, l]) =>
+    `<button type="button" data-v="${v}" aria-pressed="${(v === "1") === s.cooldown}" ${s.running ? "disabled" : ""}>${l}</button>`).join("");
+  $("cooldown").querySelectorAll("button").forEach((b) => b.onclick = async () => {
+    try { await api("/api/cooldown", { on: b.dataset.v === "1" }); refresh(); } catch (e) { toast(e.message); }
+  });
+  $("strat-note").textContent = s.running ? "Stoppa boten för att ändra." : "Klicka för att slå på/av. Flera kan vara aktiva – den starkaste signalen per symbol vinner.";
+}
+
 /* ---------- signalradar ---------- */
-const CHECKS = { burst: "Rörelse uppåt", not_overextended: "Inte för sent", volume: "Volym", range_expansion: "Range",
-  close_near_high: "Stängning nära topp", volatile_enough: "Volatilitet", green_bar: "Grön stapel", fresh: "Färsk data",
-  spread_ok: "Låg spread", not_recent: "Ej nyss såld" };
 function radar(s) {
-  const sc = s.scan, el = $("radar");
+  strategyCard(s);
+  const sc = s.scan, el = $("radar"), L = s.check_labels || {};
   if (!sc || !sc.last) {
     $("radar-stats").innerHTML = "";
     $("radar-note").textContent = "";
@@ -909,33 +970,30 @@ function radar(s) {
   const th = sc.thresholds;
   $("radar-stats").innerHTML = `<span>Senaste skanning <b>${new Date(sc.last.at).toLocaleTimeString("sv-SE")}</b></span>
     <span>Skanningar <b>${sc.scans}</b></span><span>Köpsignaler <b>${sc.signals}</b></span><span>Köpordrar <b>${sc.orders}</b></span>`;
+  const block = (s.block_reason || "").replace(/^COOLDOWN: /, "");
   $("radar-note").textContent = sc.last.full ? `Alla ${s.max_positions} platser är fulla – boten letar nya köp när en position stängs.`
     : !s.running ? "Boten är stoppad – värdena är från senaste skanningen."
-    : s.block_reason && s.block_reason !== "OK" ? "Nya köp är pausade: " + s.block_reason
-    : `Skannar var ${sc.poll_seconds}:e sekund. Boten köper när alla villkor är uppfyllda på senaste minutstapeln.`;
-  const rows = [...sc.last.rows].sort((a, b) => (b.ready - a.ready) || ((b.passed || 0) - (a.passed || 0)));
-  const cell = (ok, txt, title) => `<td class="num ${ok === undefined ? "" : ok ? "ok" : "no"}" title="${esc(title)}">${txt}</td>`;
+    : block && block !== "OK" ? "Nya köp är pausade: " + block
+    : `Skannar var ${sc.poll_seconds}:e sekund med ${s.strategies.length} strateg${s.strategies.length > 1 ? "ier" : "i"}. Boten köper när alla villkor för en strategi är uppfyllda.`;
+  const rows = [...sc.last.rows].sort((a, b) => (b.ready - a.ready) || (((b.passed || 0) / (b.total || 1)) - ((a.passed || 0) / (a.total || 1))));
   const n = (v, d = 2) => v == null ? "–" : nf2.format(+v.toFixed(d));
-  el.innerHTML = `<table><thead><tr><th>Symbol</th><th class="num">Pris</th><th class="num">Rörelse ${th.burst_bars} min</th><th class="num">Volym</th><th class="num">Range</th><th class="num">Stängning</th><th class="num">ATR</th><th class="num">Spread</th><th class="num">Ålder</th><th>Villkor</th><th>Status</th></tr></thead><tbody>${
+  el.innerHTML = `<table><thead><tr><th>Symbol</th><th class="num">Pris</th><th class="num">Spread</th><th class="num">Ålder</th><th>Närmast</th><th>Villkor</th><th>Status</th></tr></thead><tbody>${
     rows.map((r) => {
       const m = r.metrics || {}, c = r.checks || {};
-      const missing = Object.entries(c).filter(([, ok]) => !ok).map(([k]) => CHECKS[k] || k);
+      const missing = Object.entries(c).filter(([, ok]) => !ok).map(([k]) => L[k] || k);
       const status = r.held ? `<span class="tag held">Äger redan</span>`
         : r.ready ? `<span class="tag go">Köpsignal</span>`
         : r.note ? `<span class="sub">${esc(r.note)}</span>`
         : `<span class="sub">Saknas: ${esc(missing.join(", "))}</span>`;
-      const dots = r.total ? `<span class="dots">${Object.values(c).map((ok) => `<i class="${ok ? "on" : ""}"></i>`).join("")}</span>${r.passed}/${r.total}` : "–";
-      return `<tr><td class="sym">${esc(r.symbol)}</td><td class="num">${price(m.price)}</td>` +
-        cell(c.burst && c.not_overextended, m.burst_pct == null ? "–" : (m.burst_pct >= 0 ? "+" : "−") + nf2.format(Math.abs(m.burst_pct)) + " %", `Krav: +${th.burst_pct} % till +${th.max_burst_pct} %`) +
-        cell(c.volume, m.vol_ratio == null ? "–" : "×" + n(m.vol_ratio, 1), `Krav: minst ×${th.vol_ratio} mot snittet`) +
-        cell(c.range_expansion, m.range_ratio == null ? "–" : "×" + n(m.range_ratio, 1), `Krav: minst ×${th.range_ratio}`) +
-        cell(c.close_near_high, m.close_loc == null ? "–" : Math.round(m.close_loc * 100) + " %", `Krav: minst ${Math.round(th.close_loc * 100)} % av stapelns höjd`) +
-        cell(c.volatile_enough, m.atr_pct == null ? "–" : n(m.atr_pct, 2) + " %", `Krav: minst ${th.atr_pct} %`) +
-        cell(c.spread_ok, m.spread_pct == null ? "–" : n(m.spread_pct, 3) + " %", `Krav: högst ${th.max_spread_pct} % mellan köp- och säljpris`) +
-        cell(c.fresh, m.age_min == null ? "–" : m.age_min < 1 ? "<1 min" : Math.round(m.age_min) + " min", "Senaste minutstapeln får vara högst 3 min gammal") +
-        `<td>${dots}</td><td>${status}</td></tr>`;
+      const dots = r.total ? `<span class="dots">${Object.entries(c).map(([k, ok]) => `<i class="${ok ? "on" : ""}" title="${esc(L[k] || k)}"></i>`).join("")}</span>${r.passed}/${r.total}` : "–";
+      const others = (r.others || []).map((o) => `${stratLabel(s, o.strategy)}: ${o.total ? o.passed + "/" + o.total : o.note || "–"}${o.ready ? " (köpsignal)" : ""}`).join("\n");
+      const metr = Object.entries(m).filter(([k, v]) => typeof v === "number" && !["price", "age_min", "spread_pct"].includes(k)).map(([k, v]) => `${k}: ${n(v, 4)}`).join("\n");
+      return `<tr title="${esc(others + (metr ? "\n\n" + metr : ""))}"><td class="sym">${esc(r.symbol)}</td><td class="num">${price(m.price)}</td>
+        <td class="num ${c.spread_ok === undefined ? "" : c.spread_ok ? "ok" : "no"}" title="Krav: högst ${th.max_spread_pct} %">${m.spread_pct == null ? "–" : n(m.spread_pct, 3) + " %"}</td>
+        <td class="num ${c.fresh === undefined ? "" : c.fresh ? "ok" : "no"}">${m.age_min == null ? "–" : m.age_min < 1 ? "<1 min" : Math.round(m.age_min) + " min"}</td>
+        <td>${esc(stratLabel(s, r.strategy))}</td><td>${dots}</td><td>${status}</td></tr>`;
     }).join("")
-  }</tbody></table>`;
+  }</tbody></table><p class="sub" style="margin:8px 0 0">Håll muspekaren över en rad för att se alla strategiers status och mätvärden.</p>`;
 }
 
 /* ---------- equity chart ---------- */
@@ -1056,8 +1114,8 @@ function tables(s) {
   $("tab-open").innerHTML = s.positions.length ? `<table><thead><tr><th>Symbol</th><th class="num">Antal</th><th class="num">Inköp</th><th class="num">Nu</th><th class="num">Stopp</th><th class="num">Mål</th><th class="num">Orealiserat</th><th>Öppnad</th></tr></thead><tbody>${
     s.positions.map((p) => `<tr class="follow" data-follow="${esc(p.symbol)}" title="Visa live-diagram"><td class="sym">${esc(p.symbol)}</td><td class="num">${qtyFmt(p.qty)}</td><td class="num">${price(p.entry)}</td><td class="num">${price(p.price)}</td><td class="num">${price(p.stop)}</td><td class="num">${price(p.target)}</td><td class="num ${p.pnl >= 0 ? "pos" : "neg"}">${signed(p.pnl)}</td><td>${timeFmt(p.opened_at)}</td></tr>`).join("")
   }</tbody></table>` : `<div class="empty" style="min-height:120px">Inga öppna positioner just nu.</div>`;
-  $("tab-closed").innerHTML = s.closed.length ? `<table><thead><tr><th>Stängd</th><th>Symbol</th><th class="num">Antal</th><th class="num">Inköp</th><th class="num">Sälj</th><th>Orsak</th><th class="num">Resultat</th></tr></thead><tbody>${
-    s.closed.map((t) => `<tr><td>${timeFmt(t.closed_at)}</td><td class="sym">${esc(t.symbol)}</td><td class="num">${qtyFmt(t.qty)}</td><td class="num">${price(t.entry)}</td><td class="num">${price(t.exit_price)}</td><td><span class="tag">${REASONS[t.exit_reason] || esc(t.exit_reason)}</span></td><td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${signed(t.pnl)}</td></tr>`).join("")
+  $("tab-closed").innerHTML = s.closed.length ? `<table><thead><tr><th>Stängd</th><th>Symbol</th><th>Strategi</th><th class="num">Antal</th><th class="num">Inköp</th><th class="num">Sälj</th><th>Orsak</th><th class="num">Resultat</th></tr></thead><tbody>${
+    s.closed.map((t) => `<tr><td>${timeFmt(t.closed_at)}</td><td class="sym">${esc(t.symbol)}</td><td class="sub">${esc(stratLabel(s, t.strategy || "momentum"))}</td><td class="num">${qtyFmt(t.qty)}</td><td class="num">${price(t.entry)}</td><td class="num">${price(t.exit_price)}</td><td><span class="tag">${REASONS[t.exit_reason] || esc(t.exit_reason)}</span></td><td class="num ${t.pnl >= 0 ? "pos" : "neg"}">${signed(t.pnl)}</td></tr>`).join("")
   }</tbody></table>` : `<div class="empty" style="min-height:120px">Inga stängda trades än.</div>`;
   $("tab-open").querySelectorAll("tr[data-follow]").forEach((tr) => tr.onclick = () => {
     const c = live.get(tr.dataset.follow); if (c) c.el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1094,7 +1152,7 @@ function createCard(it, s) {
   el.innerHTML = `
     <div class="pos-top">
       <div>
-        <div class="pos-name"><span class="sym">${esc(it.symbol)}</span><span class="tag">${watch ? "Bevakning" : "Long"}</span><span class="sub" data-f="qty"></span></div>
+        <div class="pos-name"><span class="sym">${esc(it.symbol)}</span><span class="tag">${watch ? "Bevakning" : "Long · " + esc(stratLabel(s, it.strategy || "momentum"))}</span><span class="sub" data-f="qty"></span></div>
         <div class="sub" data-f="why" style="margin-top:4px"></div>
       </div>
       ${watch ? `<button class="close-x" title="Sluta bevaka" aria-label="Sluta bevaka">×</button>` :

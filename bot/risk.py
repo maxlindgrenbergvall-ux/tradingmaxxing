@@ -186,7 +186,12 @@ class RiskManager:
         if self.state.halted or self.halt_file.exists():
             return False, "HALTED"
         if self.state.cooldown_until and now < datetime.fromisoformat(self.state.cooldown_until):
-            return False, f"COOLDOWN till {self.state.cooldown_until}"
+            if int(self.cfg.get("losing_streak_n", 4)) <= 0:
+                self.state.cooldown_until = None  # pausen är avstängd – släpp en gammal paus direkt
+                self.save()
+            else:
+                until = datetime.fromisoformat(self.state.cooldown_until).astimezone().strftime("%H:%M")
+                return False, f"COOLDOWN: paus efter förlustserie till {until}"
         day_start = self.state.day_start_equity or equity
         day_loss = (1 - equity / day_start) * 100 if day_start else 0.0
         if day_loss >= float(self.cfg.get("max_daily_loss_pct", 8.0)):
@@ -196,9 +201,10 @@ class RiskManager:
 
     def record_trade(self, pnl: float, now: datetime | None = None) -> None:
         now = now or utcnow()
+        streak_n = int(self.cfg.get("losing_streak_n", 4))
         if pnl < 0:
             self.state.losing_streak += 1
-            if self.state.losing_streak >= int(self.cfg.get("losing_streak_n", 4)):
+            if streak_n > 0 and self.state.losing_streak >= streak_n:
                 until = now + timedelta(minutes=int(self.cfg.get("cooldown_minutes", 60)))
                 self.state.cooldown_until = until.isoformat()
                 self.state.losing_streak = 0

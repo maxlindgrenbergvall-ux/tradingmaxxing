@@ -29,10 +29,11 @@ from .broker import SimBroker, norm
 from .config import apply_profile, symbols
 from .engine import Engine
 from .risk import RiskManager
+from .strategies import STRATEGIES
 from .strategy import Bar
 
 DATA_URL = "https://data.alpaca.markets/v1beta3/crypto/us"
-WARMUP_MIN = 120
+WARMUP_MIN = 260  # RSI(2):s trendfilter behöver ~200 minuter före start
 log = logging.getLogger("bot")
 
 
@@ -210,10 +211,14 @@ class ReplayBroker(SimBroker):
 # ---------------------------------------------------------------- körning
 def run_backtest(base_cfg: dict, *, days: float, profile: str, leverage: float, capital: float,
                  data: dict[str, list[Bar]], spreads: dict[str, float], end: datetime,
-                 fee_pct: float | None = None,
+                 fee_pct: float | None = None, strategies: list[str] | None = None, cooldown: bool = False,
                  progress: Callable[[float, str], None] | None = None) -> dict:
     cfg = apply_profile(base_cfg, profile)
     cfg["sizing"]["leverage"] = leverage
+    if strategies:
+        cfg["strategy"]["strategies"] = list(strategies)
+    if not cooldown:
+        cfg["safety"]["losing_streak_n"] = 0
     if fee_pct is not None:
         cfg["strategy"]["fee_pct"] = fee_pct
     syms = symbols(cfg)
@@ -254,6 +259,8 @@ def run_backtest(base_cfg: dict, *, days: float, profile: str, leverage: float, 
     closed = [t for t in eng.journal_mem if "pnl" in t]
     return {
         "profile": profile, "leverage": leverage, "days": days, "capital": capital,
+        "strategies": cfg["strategy"].get("strategies", ["momentum"]),
+        "per_strategy": per_strategy(closed),
         "start": start.isoformat(), "end": end.isoformat(),
         "symbols": syms, "bars": {s: len(v) for s, v in data.items()},
         "spreads": {s: round(broker.spread_pct[s], 4) for s in syms},
@@ -302,6 +309,16 @@ def stats(closed: list[dict], equity: list[dict], capital: float, final: float, 
     }
 
 
+def per_strategy(closed: list[dict]) -> dict:
+    out: dict[str, dict] = {}
+    for t in closed:
+        a = out.setdefault(t.get("strategy", "momentum"), {"trades": 0, "wins": 0, "pnl": 0.0})
+        a["trades"] += 1
+        a["wins"] += t["pnl"] > 0
+        a["pnl"] += t["pnl"]
+    return out
+
+
 def per_symbol(closed: list[dict]) -> list[dict]:
     agg: dict[str, dict] = {}
     for t in closed:
@@ -325,7 +342,8 @@ class BacktestRunner:
         self.job: dict | None = None
 
     def start(self, *, days: float, profiles: list[str], leverage: float, capital: float,
-              spread_mode: str, fixed_spread: float = 0.1, fee_pct: float | None = None) -> dict:
+              spread_mode: str, fixed_spread: float = 0.1, fee_pct: float | None = None,
+              strategies: list[str] | None = None, separate: bool = True, cooldown: bool = False) -> dict:
         with self.lock:
             if self.job and self.job["status"] == "running":
                 raise RuntimeError("En backtest körs redan.")
@@ -341,14 +359,16 @@ class BacktestRunner:
             self.job = {"id": uuid.uuid4().hex[:8], "status": "running", "progress": 0.0,
                         "stage": "Förbereder…", "results": [], "error": None}
             job = self.job
-        threading.Thread(target=self._run, args=(job, days, profiles, leverage, capital, spread_mode, fixed_spread,
-                                                 fee_pct), daemon=True).start()
+        strategies = [s for s in (strategies or ["momentum"]) if s in STRATEGIES] or ["momentum"]
+        runs = [(p, [st]) for p in profiles for st in strategies] if separate else [(p, strategies) for p in profiles]
+        threading.Thread(target=self._run, args=(job, days, runs, leverage, capital, spread_mode, fixed_spread,
+                                                 fee_pct, cooldown), daemon=True).start()
         return {"id": job["id"]}
 
-    def _run(self, job, days, profiles, leverage, capital, spread_mode, fixed_spread, fee_pct):
+    def _run(self, job, days, runs, leverage, capital, spread_mode, fixed_spread, fee_pct, cooldown):
         try:
             all_syms: list[str] = []
-            for p in profiles:
+            for p in {p for p, _ in runs}:
                 for s in symbols(apply_profile(self.base_cfg, p)):
                     if s not in all_syms:
                         all_syms.append(s)
@@ -371,13 +391,16 @@ class BacktestRunner:
                     spreads = {}
                 spreads = {s: max(spreads.get(s, 0.1), 0.02) for s in all_syms}
 
-            for k, prof in enumerate(profiles):
-                def prog(frac, msg, k=k):
-                    job["progress"] = (k + frac) / len(profiles)
-                    job["stage"] = f"{prof}: {msg}"
+            for k, (prof, strats) in enumerate(runs):
+                name = f"{prof} · {', '.join(STRATEGIES[s]['label'] for s in strats)}"
+
+                def prog(frac, msg, k=k, name=name):
+                    job["progress"] = (k + frac) / len(runs)
+                    job["stage"] = f"{name}: {msg}"
                 res = run_backtest(self.base_cfg, days=days, profile=prof, leverage=leverage, capital=capital,
-                                   data=data, spreads=spreads, end=end, fee_pct=fee_pct, progress=prog)
-                res["id"] = f"{job['id']}-{prof}"
+                                   data=data, spreads=spreads, end=end, fee_pct=fee_pct, strategies=strats,
+                                   cooldown=cooldown, progress=prog)
+                res["id"] = f"{job['id']}-{prof}-{'-'.join(strats)}"
                 res["created_at"] = datetime.now(timezone.utc).isoformat()
                 (self.dir / f"{res['id']}.json").write_text(json.dumps(res))
                 job["results"].append(res)
@@ -397,7 +420,7 @@ class BacktestRunner:
             except json.JSONDecodeError:
                 continue
             out.append({k: r[k] for k in ("id", "profile", "leverage", "days", "capital", "created_at",
-                                           "halted", "liquidations", "fee_pct", "start", "end") if k in r}
+                                           "halted", "liquidations", "fee_pct", "start", "end", "strategies") if k in r}
                        | {"stats": r["stats"], "avg_spread": sum(r["spreads"].values()) / max(len(r["spreads"]), 1)})
         return out
 

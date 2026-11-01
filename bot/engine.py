@@ -13,7 +13,7 @@ from .broker import Broker, norm
 from .config import symbols
 from .risk import RiskManager, utcnow
 from .sizing import position_size
-from .strategy import CHECK_LABELS, diagnose
+from . import strategies
 
 log = logging.getLogger("bot")
 
@@ -181,7 +181,11 @@ class Engine:
                         spread * s.get("min_stop_spread_mult", 4.0),
                         entry * s.get("min_stop_pct", 0.3) / 100)
         cost = spread + 2 * entry * s.get("fee_pct", 0.25) / 100
-        reward = max(stop_dist * s.get("reward_risk", 2.0), cost * s.get("min_edge_mult", 2.0))
+        edge = cost * s.get("min_edge_mult", 2.0)
+        if sig.rr:  # momentum: målet följer stoppet (R-multipel)
+            reward = max(stop_dist * sig.rr, edge)
+        else:       # övriga strategier har eget mål (t.ex. SMA(5) eller 2R från strukturstopp)
+            reward = max(sig.target - entry, edge, stop_dist * s.get("min_reward_risk", 1.0))
         return entry, entry - stop_dist, entry + reward, None
 
     def _enter(self, acct: dict, positions: dict[str, dict], now: datetime) -> None:
@@ -194,25 +198,51 @@ class Engine:
                                 int(self.s.get("lookback_bars", 60)))
         quotes = self._quotes(self.symbols)
         reentry = timedelta(minutes=float(self.s.get("reentry_minutes", 5)))
+        names = strategies.active(self.s)
         rows, signals = [], []
         for sym in self.symbols:
-            d = diagnose(sym, bars.get(sym, []), self.s, now)
-            d["held"] = norm(sym) in held
+            sb = bars.get(sym, [])
+            common: dict[str, bool] = {}
+            extra: dict[str, float | None] = {"age_min": None}
+            if sb:
+                try:
+                    age = (now - datetime.fromisoformat(sb[-1].t.replace("Z", "+00:00"))).total_seconds() / 60
+                    extra["age_min"] = age
+                    # Senaste minutstapeln måste vara ny – annars handlar ingen symbolen just nu.
+                    common["fresh"] = age <= self.s.get("max_bar_age_minutes", 3)
+                except ValueError:
+                    pass
             q = quotes.get(sym)
-            if q and d.get("total"):
+            if q:
                 sp = (q["ask"] - q["bid"]) / ((q["ask"] + q["bid"]) / 2) * 100
-                d["metrics"]["spread_pct"] = sp
-                d["checks"]["spread_ok"] = sp <= self.s.get("max_spread_pct", 0.15)
+                extra["spread_pct"] = sp
+                common["spread_ok"] = sp <= self.s.get("max_spread_pct", 0.15)
             last_exit = self.recent_exits.get(sym)
-            if last_exit and d.get("total"):
-                d["checks"]["not_recent"] = now - last_exit >= reentry
-            if d.get("total"):
-                d["passed"], d["total"] = sum(d["checks"].values()), len(d["checks"])
-                if not all(d["checks"].values()):
-                    d["signal"] = None
-            if d["signal"] and not d["held"]:
-                signals.append(d["signal"])
-            rows.append({k: v for k, v in d.items() if k != "signal"} | {"ready": bool(d["signal"])})
+            if last_exit:
+                common["not_recent"] = now - last_exit >= reentry
+            held_sym = norm(sym) in held
+            results = []
+            for name in names:
+                d = strategies.run(name, sym, sb, self.s)
+                if d.get("checks"):
+                    d["checks"] = {**d["checks"], **common}
+                    d["passed"], d["total"] = sum(d["checks"].values()), len(d["checks"])
+                    if not all(d["checks"].values()):
+                        d["signal"] = None
+                d["metrics"] = {**d.get("metrics", {}), **extra}
+                results.append(d)
+            ready = [d for d in results if d.get("signal")]
+            if ready and not held_sym:
+                signals.append(max((d["signal"] for d in ready), key=lambda x: x.score))
+            best = (max(ready, key=lambda d: d["signal"].score) if ready else
+                    max(results, key=lambda d: (d.get("passed", 0) / d["total"]) if d.get("total") else -1))
+            rows.append({
+                "symbol": sym, "held": held_sym, "ready": bool(ready), "strategy": best["strategy"],
+                "checks": best.get("checks", {}), "metrics": best.get("metrics", {}), "note": best.get("note"),
+                "passed": best.get("passed"), "total": best.get("total"),
+                "others": [{"strategy": d["strategy"], "passed": d.get("passed"), "total": d.get("total"),
+                            "ready": bool(d.get("signal")), "note": d.get("note")} for d in results],
+            })
         self.scans += 1
         self.signals_seen += len(signals)
         self.last_scan = {"at": now.isoformat(), "full": False, "rows": rows}
@@ -251,9 +281,11 @@ class Engine:
                 "order_id": order_id, "qty": qty, "entry": entry, "stop": stop,
                 "initial_stop": stop, "target": target, "opened_at": now.isoformat(),
                 "score": sig.score, "reasons": list(sig.reasons), "fill_confirmed": False,
+                "strategy": sig.strategy,
             }
-            self.log.info("ENTRY %s qty=%s @ ~%.4f stop %.4f target %.4f [%s]",
-                     sig.symbol, qty, entry, stop, target, ", ".join(sig.reasons))
+            self.log.info("ENTRY %s (%s) qty=%s @ ~%.4f stop %.4f target %.4f [%s]",
+                     sig.symbol, strategies.STRATEGIES[sig.strategy]["label"], qty, entry, stop, target,
+                     ", ".join(sig.reasons))
         self._save_trades()
 
     def _log_summary(self, rows: list[dict], n_signals: int) -> None:
@@ -265,10 +297,11 @@ class Engine:
         if not scored:
             self.log.info("Skanning: väntar på data (%s)", ", ".join(f"{r['symbol']}: {r.get('note', '-')}" for r in rows[:3]))
             return
-        best = max(scored, key=lambda r: r["passed"])
-        missing = [CHECK_LABELS[k] for k, ok in best["checks"].items() if not ok]
-        self.log.info("Skanning %d: %d symboler, %d signaler. Närmast: %s %d/%d villkor%s",
-                 self.scans, len(rows), n_signals, best["symbol"], best["passed"], best["total"],
+        best = max(scored, key=lambda r: r["passed"] / r["total"])
+        missing = [strategies.check_label(k) for k, ok in best["checks"].items() if not ok]
+        self.log.info("Skanning %d: %d symboler, %d signaler. Närmast: %s (%s) %d/%d villkor%s",
+                 self.scans, len(rows), n_signals, best["symbol"],
+                 strategies.STRATEGIES[best["strategy"]]["label"], best["passed"], best["total"],
                  f" (saknas: {', '.join(missing)})" if missing else "")
 
     # ------------------------------------------------------------------

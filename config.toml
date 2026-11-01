@@ -25,7 +25,7 @@ asset_class = "crypto"            # "crypto" (24/7) eller "stocks" (US-börsens 
 crypto_symbols = ["BTC/USD", "ETH/USD", "SOL/USD", "DOGE/USD", "AVAX/USD", "LINK/USD"]
 stock_symbols = ["TSLA", "NVDA", "AMD", "COIN", "MARA", "PLTR", "SMCI", "MSTR", "TQQQ", "SOXL"]
 timeframe = "1Min"
-lookback_bars = 60
+lookback_bars = 240               # RSI(2)-strategins trendfilter behöver ~200 minuter historik
 
 # Momentum burst (intradag-version av Stockbee-logiken i repot):
 burst_bars = 5                    # fönster för rörelsen
@@ -49,6 +49,38 @@ min_stop_pct = 0.3                # och minst 0,3 % från köppriset
 fee_pct = 0.25                    # uppskattad avgift per order i % (Alpaca krypto, små konton)
 min_edge_mult = 2.0               # målet måste vara minst 2 x (spread + avgifter) bort
 reentry_minutes = 5               # köp inte samma symbol igen direkt efter en exit
+min_reward_risk = 1.0             # strategier med eget mål: målet minst 1 x stoppavståndet
+
+# Vilka strategier som är aktiva (väljs också i appen). Flera kan vara på samtidigt.
+# momentum = Momentum-utbrott, rsi2 = RSI(2)-återgång, vwap = VWAP-återtagning,
+# ema = EMA-pullback, squeeze = Squeeze-utbrott (TTM)
+strategies = ["momentum"]
+
+[strategy.rsi2]                   # Larry Connors RSI(2)
+trend_len = 200                   # trendfilter: pris över SMA(200) minutstaplar
+rsi_entry = 10                    # köp när RSI(2) är under detta
+atr_stop_mult = 2.0
+
+[strategy.vwap]                   # VWAP-återtagning
+vwap_len = 120                    # rullande VWAP över 120 min (krypto har ingen börsöppning)
+lookback = 10                     # måste ha legat under VWAP inom 10 min
+below_pct = 0.05
+volume_mult = 1.2
+stop_below_vwap_pct = 0.15
+reward_risk = 2.0
+
+[strategy.ema]                    # EMA-pullback
+pullback_bars = 5
+touch_pct = 0.05
+reward_risk = 2.0
+
+[strategy.squeeze]                # TTM Squeeze
+length = 20
+bb_mult = 2.0
+kc_mult = 1.5
+squeeze_lookback = 6
+volume_mult = 1.0
+reward_risk = 2.0
 
 [sizing]
 # ATR-baserad storlek (samma formel som position-sizer-skillen).

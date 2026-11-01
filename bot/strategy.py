@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from statistics import mean
+from statistics import fmean as mean  # fmean: snabb flyttalsvariant
 from typing import Any
 
 
@@ -32,6 +32,8 @@ class Signal:
     atr: float
     score: float
     reasons: tuple[str, ...]
+    strategy: str = "momentum"
+    rr: float | None = None  # satt = målet räknas som rr x stoppavståndet (efter kostnadsjustering)
 
 
 BASE_BARS = 20

@@ -186,3 +186,59 @@ def test_leverage_buying_power_and_liquidation(cfg):
     b.shock(-6)                       # ytterligare ras -> under underhållsmarginalen
     acct = b.account()
     assert b.liquidations == 1 and acct["exposure"] == 0 and b.positions() == {}
+
+
+def test_cooldown_off_never_blocks(cfg, tmp_path):
+    safety = {**cfg["safety"], "losing_streak_n": 0}
+    risk = RiskManager(safety, tmp_path)
+    risk.update(100_000)
+    for _ in range(50):
+        risk.record_trade(-1)
+    assert risk.can_open(100_000) == (True, "OK")
+
+
+def test_old_cooldown_released_when_turned_off(cfg, tmp_path):
+    from datetime import datetime, timedelta, timezone
+    risk = RiskManager(cfg["safety"], tmp_path)
+    risk.update(100_000)
+    risk.state.cooldown_until = (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+    risk.save()
+    assert risk.can_open(100_000)[0] is False
+    off = RiskManager({**cfg["safety"], "losing_streak_n": 0}, tmp_path)
+    assert off.can_open(100_000) == (True, "OK")
+
+
+def _bars_from(closes, vols=None):
+    from datetime import datetime, timedelta, timezone
+    t0 = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    out, prev = [], closes[0]
+    for i, c in enumerate(closes):
+        o = prev
+        out.append(Bar((t0 + timedelta(minutes=i)).isoformat(), o, max(o, c) * 1.0002, min(o, c) * 0.9998, c,
+                       (vols[i] if vols else 1000)))
+        prev = c
+    return out
+
+
+def test_rsi2_buys_dip_in_uptrend(cfg):
+    from bot import strategies
+    closes = [100 + i * 0.05 for i in range(230)]           # stadig upptrend
+    closes += [closes[-1] - 0.3, closes[-1] - 0.6]           # två snabba röda minuter
+    d = strategies.run("rsi2", "X", _bars_from(closes), cfg["strategy"])
+    assert d["checks"]["uptrend"] and d["checks"]["rsi_low"]
+    assert d["signal"] is not None and d["signal"].strategy == "rsi2"
+    assert d["signal"].target > d["signal"].entry > d["signal"].stop
+
+
+def test_rsi2_ignores_dip_in_downtrend(cfg):
+    from bot import strategies
+    closes = [120 - i * 0.05 for i in range(230)] + [107.5, 107.0]
+    d = strategies.run("rsi2", "X", _bars_from(closes), cfg["strategy"])
+    assert d["signal"] is None and d["checks"]["uptrend"] is False
+
+
+def test_all_strategies_handle_short_and_flat_data(cfg):
+    from bot import strategies
+    for name in strategies.STRATEGIES:
+        assert strategies.run(name, "X", _bars_from([100.0] * 5), cfg["strategy"])["signal"] is None
+        assert strategies.run(name, "X", _bars_from([100.0] * 260), cfg["strategy"])["signal"] is None

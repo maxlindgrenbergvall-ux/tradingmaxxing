@@ -19,6 +19,7 @@ from .broker import AlpacaBroker, SimBroker, norm
 from .config import DEFAULT_PATH, apply_profile, load_config, profiles, symbols
 from .engine import Engine
 from .risk import RiskManager, utcnow
+from . import strategies as strat_lib
 from .backtest import BacktestRunner
 from .updater import RESTART_CODE, Updater
 
@@ -58,9 +59,13 @@ class Controller:
         settings = json.loads(self.settings_path.read_text()) if self.settings_path.exists() else {}
         self.profile = "normal"
         self.leverage = 1.0
+        self.strategies = ["momentum"]
+        self.cooldown = False  # paus efter förlustserie – av som standard (nödbroms och dagsgräns gäller alltid)
         try:
             self.set_profile(settings.get("profile", "hogfrekvens"), save=False)
             self.set_leverage(settings.get("leverage", 1), save=False)
+            self.set_strategies(settings.get("strategies", ["momentum"]), save=False)
+            self.cooldown = bool(settings.get("cooldown", False))
         except ValueError:
             pass
         self._load_credentials()
@@ -116,8 +121,33 @@ class Controller:
         if save:
             self._save_settings()
 
+    def set_strategies(self, names: list[str], save: bool = True) -> None:
+        if self.running:
+            raise RuntimeError("Stoppa boten innan du byter strategier.")
+        names = [n for n in names if n in strat_lib.STRATEGIES]
+        if not names:
+            raise ValueError("Välj minst en strategi.")
+        self.strategies = names
+        if save:
+            self._save_settings()
+
+    def set_cooldown(self, on: bool) -> None:
+        if self.running:
+            raise RuntimeError("Stoppa boten innan du ändrar pausen.")
+        self.cooldown = bool(on)
+        self._save_settings()
+
+    def run_cfg(self) -> dict:
+        """Konfigurationen boten faktiskt startas med: tempo + valda strategier + pausval."""
+        cfg = json.loads(json.dumps(self.cfg))
+        cfg["strategy"]["strategies"] = list(self.strategies)
+        if not self.cooldown:
+            cfg["safety"]["losing_streak_n"] = 0
+        return cfg
+
     def _save_settings(self) -> None:
-        self.settings_path.write_text(json.dumps({"profile": self.profile, "leverage": self.leverage}))
+        self.settings_path.write_text(json.dumps({"profile": self.profile, "leverage": self.leverage,
+                                                  "strategies": self.strategies, "cooldown": self.cooldown}))
 
     def has_keys(self) -> bool:
         return bool(os.environ.get("ALPACA_API_KEY") and os.environ.get("ALPACA_SECRET_KEY"))
@@ -127,7 +157,7 @@ class Controller:
         return self.state_root / "sim" if mode == "sim" else self.state_root
 
     def risk_for(self, mode: str) -> RiskManager:
-        return RiskManager(self.cfg["safety"], self.state_dir(mode))
+        return RiskManager(self.run_cfg()["safety"], self.state_dir(mode))
 
     @property
     def running(self) -> bool:
@@ -146,7 +176,7 @@ class Controller:
             risk = self.risk_for(mode)
             if risk.state.halted or risk.halt_file.exists():
                 raise RuntimeError("Nödbromsen har löst ut – granska och lås upp först.")
-            cfg = json.loads(json.dumps(self.cfg))
+            cfg = self.run_cfg()
             if mode == "sim":
                 cfg["runtime"]["poll_seconds"] = 1
                 cfg["sizing"]["leverage"] = self.leverage
@@ -213,6 +243,16 @@ class Controller:
         else:
             eq = AlpacaBroker(self.cfg["strategy"]["asset_class"], "paper").account()["equity"]
         return risk.unlock(eq, reset)
+
+    @staticmethod
+    def _per_strategy(closed: list[dict]) -> dict:
+        out: dict[str, dict] = {}
+        for t in closed:
+            a = out.setdefault(t.get("strategy", "momentum"), {"trades": 0, "wins": 0, "pnl": 0.0})
+            a["trades"] += 1
+            a["wins"] += t["pnl"] > 0
+            a["pnl"] += t["pnl"]
+        return out
 
     def _scan_info(self) -> dict | None:
         eng = self.engine
@@ -331,6 +371,7 @@ class Controller:
                     "symbol": sym, "qty": t["qty"], "entry": t["entry"], "price": cur,
                     "stop": t["stop"], "target": t["target"], "opened_at": t["opened_at"],
                     "pnl": (cur - t["entry"]) * t["qty"],
+                    "strategy": t.get("strategy", "momentum"),
                     "initial_stop": t.get("initial_stop", t["stop"]),
                     "reasons": t.get("reasons", []),
                 })
@@ -381,6 +422,12 @@ class Controller:
             "avg_hold_min": sum(holds) / len(holds) if holds else None,
             "profile": self.profile,
             "leverage": self.leverage,
+            "strategies": self.strategies,
+            "strategy_catalog": strat_lib.catalog(),
+            "check_labels": {k: v for meta in strat_lib.STRATEGIES.values() for k, v in meta["checks"].items()}
+                            | strat_lib.COMMON_CHECKS,
+            "per_strategy": self._per_strategy(closed),
+            "cooldown": self.cooldown,
             "leverages": list(self.LEVERAGES),
             "exposure": (acct or {}).get("exposure"),
             "liquidations": getattr(self.engine.broker, "liquidations", 0) if self.engine else 0,
@@ -477,7 +524,15 @@ def make_handler(ctrl: Controller):
                         days=float(body.get("days", 7)), profiles=list(body.get("profiles") or []),
                         leverage=float(body.get("leverage", 1)), capital=float(body.get("capital", 100_000)),
                         spread_mode=body.get("spread_mode", "live"), fixed_spread=float(body.get("fixed_spread", 0.1)),
-                        fee_pct=None if body.get("fee_pct") is None else float(body["fee_pct"]))
+                        fee_pct=None if body.get("fee_pct") is None else float(body["fee_pct"]),
+                        strategies=list(body.get("strategies") or ctrl.strategies),
+                        separate=bool(body.get("separate", True)), cooldown=ctrl.cooldown)
+                elif self.path == "/api/strategies":
+                    ctrl.set_strategies(list(body.get("strategies") or []))
+                    out = {"ok": True}
+                elif self.path == "/api/cooldown":
+                    ctrl.set_cooldown(bool(body.get("on")))
+                    out = {"ok": True}
                 elif self.path == "/api/leverage":
                     ctrl.set_leverage(body.get("leverage", 1))
                     out = {"ok": True}
